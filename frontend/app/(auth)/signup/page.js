@@ -11,7 +11,7 @@ import { Loader2 } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
-  const { setAuth, setLoading, setError, loading, error } = useAuthStore();
+  const { signup, setError, loading, error } = useAuthStore();
   
   const [formData, setFormData] = useState({
     name: "",
@@ -58,30 +58,12 @@ export default function SignupPage() {
       return;
     }
 
-    setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          password: formData.password
-        }),
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        setAuth(data.user, data.token);
-        router.push("/dashboard"); 
-      } else {
-        setError(data.message || "Failed to sign up");
-      }
+      await signup(formData.name, formData.email, formData.password);
+      router.push("/login");
     } catch (err) {
-      setError("An unexpected error occurred");
-    } finally {
-      setLoading(false);
+      setError(err?.message || "An unexpected error occurred");
     }
   };
 
