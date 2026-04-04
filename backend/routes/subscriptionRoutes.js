@@ -11,6 +11,7 @@ const {
   closeSubscription,
   renewSubscription,
   upsellSubscription,
+  createInvoiceFromSubscription,
 } = require("../controllers/subscriptionController");
 const { protect, allowRoles } = require("../middlewares/authMiddleware");
 
@@ -23,5 +24,6 @@ router.post("/:id/confirm", protect, allowRoles("admin", "internal"), confirmSub
 router.post("/:id/close", protect, allowRoles("admin", "internal"), closeSubscription);
 router.post("/:id/renew", protect, allowRoles("admin", "internal"), renewSubscription);
 router.post("/:id/upsell", protect, allowRoles("admin", "internal"), upsellSubscription);
+router.post("/:id/create-invoice", protect, allowRoles("admin", "internal"), createInvoiceFromSubscription);
 
 module.exports = router;

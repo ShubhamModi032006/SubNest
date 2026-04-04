@@ -1,6 +1,7 @@
 const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
 const { generateSubscriptionNumber, calculateSubscriptionLine } = require("../utils/subscriptionPricing");
+const { createInvoiceFromSubscriptionInternal } = require("./invoiceController");
 
 const ALLOWED_STATUSES = ["draft", "quotation", "confirmed", "active", "closed"];
 
@@ -113,6 +114,40 @@ const loadPlan = async (client, planId) => {
   return result.rows[0];
 };
 
+const loadQuotationTemplate = async (client, templateId) => {
+  const templateResult = await client.query(
+    `SELECT id, plan_id
+     FROM quotation_templates
+     WHERE id = $1`,
+    [templateId]
+  );
+
+  if (templateResult.rows.length === 0) {
+    const error = new Error("Quotation template does not exist.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const lineResult = await client.query(
+    `SELECT product_id, quantity, description
+     FROM quotation_template_lines
+     WHERE template_id = $1
+     ORDER BY created_at ASC`,
+    [templateId]
+  );
+
+  if (lineResult.rows.length === 0) {
+    const error = new Error("Quotation template has no product lines.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    ...templateResult.rows[0],
+    lines: lineResult.rows,
+  };
+};
+
 const loadProductsForItems = async (client, items) => {
   const productIds = [...new Set(items.map((item) => String(item.product_id).trim()))];
   const productResult = await client.query(
@@ -208,6 +243,7 @@ const parseSubscriptionPayload = (body) => {
     customer_id: normalizeText(body.customer_id),
     customer_type: body.customer_type ? String(body.customer_type).trim() : undefined,
     plan_id: normalizeText(body.plan_id),
+    quotation_template_id: normalizeText(body.quotation_template_id),
     start_date: normalizeText(body.start_date),
     expiration_date: normalizeText(body.expiration_date),
     payment_terms: normalizeText(body.payment_terms),
@@ -222,8 +258,8 @@ const validateSubscriptionPayload = (payload) => {
     errors.push("Customer is required.");
   }
 
-  if (!payload.plan_id) {
-    errors.push("Plan is required.");
+  if (!payload.plan_id && !payload.quotation_template_id) {
+    errors.push("Plan is required when quotation template is not selected.");
   }
 
   if (payload.customer_type && !["user", "contact"].includes(payload.customer_type)) {
@@ -244,8 +280,8 @@ const validateSubscriptionPayload = (payload) => {
     }
   }
 
-  if (!Array.isArray(payload.items) || payload.items.length === 0) {
-    errors.push("Items are required.");
+  if ((!Array.isArray(payload.items) || payload.items.length === 0) && !payload.quotation_template_id) {
+    errors.push("Items are required when quotation template is not selected.");
   }
 
   if (payload.items) {
@@ -337,10 +373,22 @@ const createSubscription = async (req, res, next) => {
 
     const subscription = await withTransaction(async (client) => {
       const customer = await resolveCustomer(client, payload.customer_id, payload.customer_type);
-      const plan = await loadPlan(client, payload.plan_id);
-      const loaded = await loadProductsForItems(client, payload.items);
+      const template = payload.quotation_template_id
+        ? await loadQuotationTemplate(client, payload.quotation_template_id)
+        : null;
+
+      const effectivePlanId = payload.plan_id || template?.plan_id;
+      const effectiveItems = payload.items && payload.items.length > 0
+        ? payload.items
+        : (template?.lines || []).map((line) => ({
+            product_id: line.product_id,
+            quantity: line.quantity,
+          }));
+
+      const plan = await loadPlan(client, effectivePlanId);
+      const loaded = await loadProductsForItems(client, effectiveItems);
       const items = buildSubscriptionItems({
-        items: payload.items,
+        items: effectiveItems,
         productsById: loaded.productsById,
         variantsById: loaded.variantsById,
         discountsByProduct: loaded.discountsByProduct,
@@ -776,6 +824,15 @@ const upsellSubscription = async (req, res, next) => {
   }
 };
 
+const createInvoiceFromSubscription = async (req, res, next) => {
+  try {
+    const invoiceId = await createInvoiceFromSubscriptionInternal(req.params.id);
+    return sendSuccess(res, 201, { invoice_id: invoiceId }, "Invoice generated from subscription successfully.");
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createSubscription,
   getSubscriptions,
@@ -786,4 +843,5 @@ module.exports = {
   closeSubscription,
   renewSubscription,
   upsellSubscription,
+  createInvoiceFromSubscription,
 };
