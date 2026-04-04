@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
 import { Button } from "@/components/ui/button";
@@ -12,18 +12,30 @@ import { cn } from "@/lib/utils";
 
 export default function CreateProductPage() {
   const router = useRouter();
-  const { createProduct } = useDataStore();
+  const { createProduct, plans, taxes, fetchPlans, fetchTaxes } = useDataStore();
   
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("basic");
   
   const [formData, setFormData] = useState({
-    name: "", type: "Service", salesPrice: "", costPrice: "", tax: "Standard 20%"
+    name: "", type: "Service", salesPrice: "", costPrice: "", tax: ""
   });
 
   const [recurringPrices, setRecurringPrices] = useState([]);
   const [variants, setVariants] = useState([]);
+
+  useEffect(() => {
+    fetchPlans();
+    fetchTaxes();
+  }, [fetchPlans, fetchTaxes]);
+
+  useEffect(() => {
+    if (!formData.tax && taxes.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFormData((prev) => ({ ...prev, tax: taxes[0].id }));
+    }
+  }, [taxes, formData.tax]);
 
   const handleChange = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
 
@@ -40,7 +52,14 @@ export default function CreateProductPage() {
         ...formData,
         salesPrice: Number(formData.salesPrice) || 0,
         costPrice: Number(formData.costPrice) || 0,
-        recurringPrices,
+        recurringPrices: recurringPrices.map((item) => {
+          const selectedPlan = plans.find((plan) => plan.id === item.planId);
+          return {
+            ...item,
+            planId: item.planId,
+            planName: selectedPlan?.name || "",
+          };
+        }),
         variants
       };
       await createProduct(payload);
@@ -52,7 +71,7 @@ export default function CreateProductPage() {
   };
 
   // Mutators for nested arrays
-  const addRecurring = () => setRecurringPrices(p => [...p, { id: Date.now().toString(), plan: "", price: 0, minQuantity: 1, startDate: "", endDate: "" }]);
+  const addRecurring = () => setRecurringPrices(p => [...p, { id: Date.now().toString(), planId: plans[0]?.id || "", price: 0, minQuantity: 1, startDate: "", endDate: "" }]);
   const removeRecurring = (id) => setRecurringPrices(p => p.filter(r => r.id !== id));
   const updateRecurring = (id, field, val) => setRecurringPrices(p => p.map(r => r.id === id ? { ...r, [field]: val } : r));
 
@@ -118,9 +137,11 @@ export default function CreateProductPage() {
                 <div className="space-y-2 sm:col-span-2">
                   <Label>Tax Mapping</Label>
                   <select name="tax" value={formData.tax} onChange={handleChange} className="flex h-10 w-full lg:w-1/2 rounded-md border border-input bg-background/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">
-                    <option value="Standard 20%">Standard Rate (20%)</option>
-                    <option value="Reduced 5%">Reduced Rate (5%)</option>
-                    <option value="Zero">Zero Rated</option>
+                    {taxes.map((tax) => (
+                      <option key={tax.id} value={tax.id}>
+                        {tax.name} ({tax.type === "Percentage" ? `${tax.value}%` : `$${tax.value}`})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -141,8 +162,18 @@ export default function CreateProductPage() {
                     {recurringPrices.map((r) => (
                       <div key={r.id} className="p-4 rounded-xl border border-border/50 bg-muted/10 grid grid-cols-1 md:grid-cols-6 gap-4 items-end relative group">
                         <div className="md:col-span-2 space-y-1">
-                          <Label className="text-xs">Plan Title</Label>
-                          <Input value={r.plan} onChange={(e) => updateRecurring(r.id, "plan", e.target.value)} placeholder="e.g. Monthly Standard" required />
+                          <Label className="text-xs">Plan</Label>
+                          <select
+                            value={r.planId}
+                            onChange={(e) => updateRecurring(r.id, "planId", e.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
+                          >
+                            {plans.map((plan) => (
+                              <option key={plan.id} value={plan.id}>
+                                {plan.name}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">Price ($)</Label>
