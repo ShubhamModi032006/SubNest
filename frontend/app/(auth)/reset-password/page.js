@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { fetchApi } from "@/lib/api";
 
 export default function ResetPasswordPage() {
   const [email, setEmail] = useState("");
@@ -29,21 +30,14 @@ export default function ResetPasswordPage() {
     setError("");
     
     try {
-      const res = await fetch("/api/auth/forgot-password", {
+      await fetchApi("/auth/forgot-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      
-      const data = await res.json();
-      
-      if (res.ok) {
-        setSuccess(true);
-      } else {
-        setError(data.message || "Failed to send reset link");
-      }
+
+      setSuccess(true);
     } catch (err) {
-      setError("An unexpected error occurred");
+      setError(err?.message || "Failed to send reset link");
     } finally {
       setLoading(false);
     }
