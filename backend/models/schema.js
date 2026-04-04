@@ -187,6 +187,69 @@ const createTables = async () => {
     );
   `;
 
+  const createQuotationTemplatesTable = `
+    CREATE TABLE IF NOT EXISTS quotation_templates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(255) NOT NULL,
+      validity_days INTEGER NOT NULL CHECK (validity_days > 0),
+      plan_id UUID NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  const createQuotationTemplateLinesTable = `
+    CREATE TABLE IF NOT EXISTS quotation_template_lines (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      template_id UUID NOT NULL REFERENCES quotation_templates(id) ON DELETE CASCADE,
+      product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      description TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  const createInvoicesTable = `
+    CREATE TABLE IF NOT EXISTS invoices (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      invoice_number VARCHAR(50) NOT NULL UNIQUE,
+      subscription_id UUID REFERENCES subscriptions(id) ON DELETE SET NULL,
+      customer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      customer_contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
+      customer_type VARCHAR(20) NOT NULL CHECK (customer_type IN ('user', 'contact')),
+      invoice_date DATE NOT NULL,
+      due_date DATE NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'confirmed', 'paid', 'cancelled')),
+      subtotal NUMERIC(12, 2) NOT NULL CHECK (subtotal >= 0),
+      discount_total NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (discount_total >= 0),
+      tax_total NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (tax_total >= 0),
+      grand_total NUMERIC(12, 2) NOT NULL CHECK (grand_total >= 0),
+      sent_at TIMESTAMP WITH TIME ZONE,
+      confirmed_at TIMESTAMP WITH TIME ZONE,
+      cancelled_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      CHECK (
+        (CASE WHEN customer_user_id IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN customer_contact_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+      )
+    );
+  `;
+
+  const createInvoiceItemsTable = `
+    CREATE TABLE IF NOT EXISTS invoice_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+      description TEXT,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_price NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0),
+      discount NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
+      tax NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (tax >= 0),
+      total NUMERIC(12, 2) NOT NULL CHECK (total >= 0),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
   const createUsersEmailIndex = `
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
   `;
@@ -247,6 +310,30 @@ const createTables = async () => {
     CREATE INDEX IF NOT EXISTS idx_subscription_items_subscription_id ON subscription_items(subscription_id);
   `;
 
+  const createQuotationTemplatesNameIndex = `
+    CREATE INDEX IF NOT EXISTS idx_quotation_templates_name ON quotation_templates(name);
+  `;
+
+  const createQuotationTemplateLinesTemplateIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_quotation_template_lines_template_id ON quotation_template_lines(template_id);
+  `;
+
+  const createInvoicesNumberIndex = `
+    CREATE INDEX IF NOT EXISTS idx_invoices_number ON invoices(invoice_number);
+  `;
+
+  const createInvoicesStatusIndex = `
+    CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+  `;
+
+  const createInvoicesSubscriptionIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_invoices_subscription_id ON invoices(subscription_id);
+  `;
+
+  const createInvoiceItemsInvoiceIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
+  `;
+
   try {
     await pool.query(createPgcryptoExtension);
     console.log("✅ Extension pgcrypto ready");
@@ -290,6 +377,18 @@ const createTables = async () => {
     await pool.query(createSubscriptionItemsTable);
     console.log("✅ Subscription items table ready");
 
+    await pool.query(createQuotationTemplatesTable);
+    console.log("✅ Quotation templates table ready");
+
+    await pool.query(createQuotationTemplateLinesTable);
+    console.log("✅ Quotation template lines table ready");
+
+    await pool.query(createInvoicesTable);
+    console.log("✅ Invoices table ready");
+
+    await pool.query(createInvoiceItemsTable);
+    console.log("✅ Invoice items table ready");
+
     await pool.query(createDiscountsTable);
     console.log("✅ Discounts table ready");
 
@@ -304,6 +403,12 @@ const createTables = async () => {
     await pool.query(createSubscriptionsCustomerContactIdIndex);
     await pool.query(createSubscriptionsStatusIndex);
     await pool.query(createSubscriptionItemsSubscriptionIdIndex);
+    await pool.query(createQuotationTemplatesNameIndex);
+    await pool.query(createQuotationTemplateLinesTemplateIdIndex);
+    await pool.query(createInvoicesNumberIndex);
+    await pool.query(createInvoicesStatusIndex);
+    await pool.query(createInvoicesSubscriptionIdIndex);
+    await pool.query(createInvoiceItemsInvoiceIdIndex);
     await pool.query(createTaxesNameIndex);
     await pool.query(createPlansNameIndex);
     await pool.query(createDiscountsNameIndex);
