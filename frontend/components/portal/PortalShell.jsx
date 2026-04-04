@@ -23,17 +23,29 @@ export function PortalShell({ title, subtitle, children, showBackdrop = true }) 
   const cartCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0));
   const { user, token, logout } = useAuthStore();
   const { theme, toggleTheme } = useTheme();
-  const [hydrated, setHydrated] = useState(useAuthStore.persist.hasHydrated());
+  const [hydrated, setHydrated] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
-      setHydrated(true);
-    });
+    const persistApi = useAuthStore.persist;
 
-    setHydrated(useAuthStore.persist.hasHydrated());
-    return unsubscribe;
+    if (!persistApi) {
+      setHydrated(true);
+      return undefined;
+    }
+
+    const hasHydrated = typeof persistApi.hasHydrated === "function" ? persistApi.hasHydrated() : true;
+    setHydrated(Boolean(hasHydrated));
+
+    if (typeof persistApi.onFinishHydration === "function") {
+      const unsubscribe = persistApi.onFinishHydration(() => {
+        setHydrated(true);
+      });
+      return unsubscribe;
+    }
+
+    return undefined;
   }, []);
 
   useEffect(() => {
