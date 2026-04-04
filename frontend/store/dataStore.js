@@ -49,6 +49,7 @@ const normalizeContact = (contact) => ({
 const normalizePlan = (plan) => ({
   ...plan,
   billingPeriod: plan?.billingPeriod ?? plan?.billing_period ?? '',
+  price: Number(plan?.price ?? 0),
   minQuantity: Number(plan?.minQuantity ?? plan?.min_quantity ?? 1),
   startDate: plan?.startDate ?? plan?.start_date ?? '',
   endDate: plan?.endDate ?? plan?.end_date ?? '',
@@ -67,12 +68,21 @@ const normalizeTax = (tax) => {
 
 const normalizeDiscount = (discount) => ({
   ...discount,
+  type: String(discount?.type || '').toLowerCase(),
   minPurchase: Number(discount?.minPurchase ?? discount?.min_purchase ?? 0),
   minQuantity: Number(discount?.minQuantity ?? discount?.min_quantity ?? 0),
   startDate: discount?.startDate ?? discount?.start_date ?? '',
   endDate: discount?.endDate ?? discount?.end_date ?? '',
   usageLimit: Number(discount?.usageLimit ?? discount?.usage_limit ?? 0),
   applyToSubscription: Boolean(discount?.applyToSubscription ?? discount?.apply_to_subscription),
+  applyToSubscriptions: Boolean(discount?.applyToSubscriptions ?? discount?.applyToSubscription ?? discount?.apply_to_subscription),
+  productIds: Array.isArray(discount?.productIds)
+    ? discount.productIds
+    : Array.isArray(discount?.products)
+      ? discount.products.map((product) => product?.id).filter(Boolean)
+      : Array.isArray(discount?.product_ids)
+        ? discount.product_ids
+        : [],
   createdAt: discount?.createdAt ?? discount?.created_at ?? '',
 });
 
@@ -108,6 +118,13 @@ const normalizeSubscription = (subscription) => ({
   expirationDate: subscription?.expirationDate ?? subscription?.expiration_date ?? '',
   paymentTerms: subscription?.paymentTerms ?? subscription?.payment_terms ?? '',
   status: toUiSubscriptionStatus(subscription?.status),
+  plan: subscription?.plan
+    ? {
+        ...subscription.plan,
+        billingPeriod: subscription?.plan?.billingPeriod ?? subscription?.plan?.billing_period ?? '',
+        price: Number(subscription?.plan?.price ?? subscription?.plan?.plan_price ?? 0),
+      }
+    : subscription?.plan,
   orderLines: (subscription?.orderLines || subscription?.items || []).map((item) => ({
     id: item?.id,
     productId: item?.productId ?? item?.product_id,
@@ -117,6 +134,7 @@ const normalizeSubscription = (subscription) => ({
     unitPrice: Number(item?.unitPrice ?? item?.unit_price ?? 0),
     discountValue: Number(item?.discountValue ?? item?.discount ?? 0),
     taxValue: Number(item?.taxValue ?? item?.tax ?? 0),
+    amount: Number(item?.amount ?? item?.lineTotal ?? 0),
     lineTotal: Number(item?.lineTotal ?? item?.amount ?? 0),
   })),
 });
@@ -500,14 +518,19 @@ export const useDataStore = create((set, get) => ({
   },
 
   createPlan: async (payload) => {
+    const normalizedBillingPeriod = String(
+      payload?.billing_period ?? payload?.billingPeriod ?? ''
+    ).toLowerCase();
+
     const response = await fetchApi('/plans', {
       method: 'POST',
       body: JSON.stringify({
         ...payload,
-        billing_period: payload?.billing_period ?? payload?.billingPeriod,
-        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        billing_period: normalizedBillingPeriod,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity ?? payload?.minimumQuantity,
         start_date: payload?.start_date ?? payload?.startDate,
         end_date: payload?.end_date ?? payload?.endDate,
+        auto_close: payload?.auto_close ?? payload?.autoClose,
       }),
     });
     const data = getPayload(response);
@@ -517,14 +540,19 @@ export const useDataStore = create((set, get) => ({
   },
 
   updatePlan: async (id, payload) => {
+    const normalizedBillingPeriod = String(
+      payload?.billing_period ?? payload?.billingPeriod ?? ''
+    ).toLowerCase();
+
     const response = await fetchApi(`/plans/${id}`, {
       method: 'PUT',
       body: JSON.stringify({
         ...payload,
-        billing_period: payload?.billing_period ?? payload?.billingPeriod,
-        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        billing_period: normalizedBillingPeriod,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity ?? payload?.minimumQuantity,
         start_date: payload?.start_date ?? payload?.startDate,
         end_date: payload?.end_date ?? payload?.endDate,
+        auto_close: payload?.auto_close ?? payload?.autoClose,
       }),
     });
     const data = getPayload(response);
@@ -598,16 +626,19 @@ export const useDataStore = create((set, get) => ({
   },
 
   createDiscount: async (payload) => {
+    const normalizedType = String(payload?.type || '').toLowerCase();
+
     const response = await fetchApi('/discounts', {
       method: 'POST',
       body: JSON.stringify({
         ...payload,
+        type: normalizedType,
         min_purchase: payload?.min_purchase ?? payload?.minPurchase,
-        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity ?? payload?.minimumQuantity,
         start_date: payload?.start_date ?? payload?.startDate,
         end_date: payload?.end_date ?? payload?.endDate,
         usage_limit: payload?.usage_limit ?? payload?.usageLimit,
-        apply_to_subscription: payload?.apply_to_subscription ?? payload?.applyToSubscription,
+        apply_to_subscription: payload?.apply_to_subscription ?? payload?.applyToSubscription ?? payload?.applyToSubscriptions,
         product_ids: payload?.product_ids ?? payload?.productIds,
       }),
     });
@@ -618,16 +649,19 @@ export const useDataStore = create((set, get) => ({
   },
 
   updateDiscount: async (id, payload) => {
+    const normalizedType = String(payload?.type || '').toLowerCase();
+
     const response = await fetchApi(`/discounts/${id}`, {
       method: 'PUT',
       body: JSON.stringify({
         ...payload,
+        type: normalizedType,
         min_purchase: payload?.min_purchase ?? payload?.minPurchase,
-        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity ?? payload?.minimumQuantity,
         start_date: payload?.start_date ?? payload?.startDate,
         end_date: payload?.end_date ?? payload?.endDate,
         usage_limit: payload?.usage_limit ?? payload?.usageLimit,
-        apply_to_subscription: payload?.apply_to_subscription ?? payload?.applyToSubscription,
+        apply_to_subscription: payload?.apply_to_subscription ?? payload?.applyToSubscription ?? payload?.applyToSubscriptions,
         product_ids: payload?.product_ids ?? payload?.productIds,
       }),
     });

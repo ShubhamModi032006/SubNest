@@ -15,13 +15,13 @@ export function DiscountForm({ initialData, onSubmit, isSaving, isAdmin, submitL
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     name: initialData?.name || "",
-    type: initialData?.type || "Percentage",
+    type: String(initialData?.type || "percentage").toLowerCase(),
     value: initialData?.value ?? "",
-    minimumPurchase: initialData?.minimumPurchase ?? 0,
-    minimumQuantity: initialData?.minimumQuantity ?? 0,
+    minimumPurchase: initialData?.minimumPurchase ?? "",
+    minimumQuantity: initialData?.minimumQuantity ?? "",
     startDate: initialData?.startDate || "",
     endDate: initialData?.endDate || "",
-    usageLimit: initialData?.usageLimit ?? 0,
+    usageLimit: initialData?.usageLimit ?? "",
     productIds: initialData?.productIds || [],
     applyToSubscriptions: Boolean(initialData?.applyToSubscriptions),
   });
@@ -54,12 +54,22 @@ export function DiscountForm({ initialData, onSubmit, isSaving, isAdmin, submitL
       return;
     }
 
+    const optionalNumber = (value) => {
+      if (value === "" || value === null || value === undefined) {
+        return null;
+      }
+
+      const numericValue = Number(value);
+      return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
+    };
+
     await onSubmit({
       ...formData,
       value: Number(formData.value),
-      minimumPurchase: Number(formData.minimumPurchase),
-      minimumQuantity: Number(formData.minimumQuantity),
-      usageLimit: Number(formData.usageLimit),
+      type: String(formData.type || "percentage").toLowerCase(),
+      minimumPurchase: optionalNumber(formData.minimumPurchase),
+      minimumQuantity: optionalNumber(formData.minimumQuantity),
+      usageLimit: optionalNumber(formData.usageLimit),
     });
   };
 
@@ -86,8 +96,8 @@ export function DiscountForm({ initialData, onSubmit, isSaving, isAdmin, submitL
               disabled={!isAdmin}
               className="flex h-10 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
             >
-              <option value="Percentage">Percentage</option>
-              <option value="Fixed">Fixed</option>
+              <option value="percentage">Percentage</option>
+              <option value="fixed">Fixed</option>
             </select>
           </div>
 

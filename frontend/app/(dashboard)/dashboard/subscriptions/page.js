@@ -57,6 +57,12 @@ export default function SubscriptionsPage() {
         </Link>
       </div>
 
+      {role === "internal" ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Actions like closing or cancelling confirmed/active subscriptions require admin approval. Use the Approvals page to track request status.
+        </div>
+      ) : null}
+
       <div className="rounded-2xl border border-border/50 bg-card/80 shadow-2xl backdrop-blur-xl">
         <div className="grid gap-3 border-b border-border/50 p-5 md:grid-cols-3">
           <div className="relative md:col-span-2">

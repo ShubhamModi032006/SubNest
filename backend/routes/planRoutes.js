@@ -10,9 +10,9 @@ const {
 } = require("../controllers/planController");
 const { protect, allowRoles } = require("../middlewares/authMiddleware");
 
-router.get("/", protect, allowRoles("admin"), getPlans);
+router.get("/", protect, allowRoles("admin", "internal"), getPlans);
 router.post("/", protect, allowRoles("admin"), createPlan);
-router.get("/:id", protect, allowRoles("admin"), getPlanById);
+router.get("/:id", protect, allowRoles("admin", "internal"), getPlanById);
 router.put("/:id", protect, allowRoles("admin"), updatePlan);
 router.delete("/:id", protect, allowRoles("admin"), deletePlan);
 

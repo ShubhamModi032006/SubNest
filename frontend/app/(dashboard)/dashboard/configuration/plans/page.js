@@ -10,6 +10,11 @@ import { Search, Plus, Edit, Trash2 } from "lucide-react";
 
 const PAGE_SIZE = 5;
 
+const formatPlanPrice = (value) => {
+  const numericPrice = Number(value);
+  return Number.isFinite(numericPrice) ? numericPrice.toFixed(2) : "0.00";
+};
+
 export default function PlansPage() {
   const { plans, loadingPlans, fetchPlans, deletePlan } = useDataStore();
   const { user } = useAuthStore();
@@ -83,7 +88,7 @@ export default function PlansPage() {
                   <tr key={plan.id} className="hover:bg-muted/10">
                     <td className="px-6 py-4 font-medium">{plan.name}</td>
                     <td className="px-6 py-4">{plan.billingPeriod}</td>
-                    <td className="px-6 py-4">${plan.price.toFixed(2)}</td>
+                    <td className="px-6 py-4">${formatPlanPrice(plan.price)}</td>
                     <td className="px-6 py-4">
                       <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-500">
                         {plan.status}

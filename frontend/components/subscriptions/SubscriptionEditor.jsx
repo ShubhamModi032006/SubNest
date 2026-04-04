@@ -148,7 +148,7 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
         productName: product?.name || line.productName || "",
         variantId: "",
         quantity: line.quantity || 1,
-        discountType: "Fixed",
+        discountType: "fixed",
         discountValue: "",
       };
     });
@@ -278,6 +278,7 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     });
 
     setApprovalModal({ open: false, action: "" });
+    router.push("/dashboard/approvals?created=1");
   };
 
   if (!canManage) {
@@ -400,6 +401,11 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
                     <option key={plan.id} value={plan.id}>{plan.name}</option>
                   ))}
                 </select>
+                {plans.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No recurring plans found. Ask an admin to create one in Configuration / Plans.
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label>Payment Terms</Label>

@@ -8,13 +8,18 @@ import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Loader2, Save } from "lucide-react";
 
-const billingPeriods = ["Daily", "Weekly", "Monthly", "Yearly"];
+const billingPeriods = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly" },
+];
 
 export function PlanForm({ initialData, onSubmit, isSaving, isAdmin, submitLabel }) {
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     name: initialData?.name || "",
-    billingPeriod: initialData?.billingPeriod || "Monthly",
+    billingPeriod: String(initialData?.billingPeriod || "monthly").toLowerCase(),
     price: initialData?.price ?? "",
     minimumQuantity: initialData?.minimumQuantity ?? 1,
     startDate: initialData?.startDate || "",
@@ -85,8 +90,8 @@ export function PlanForm({ initialData, onSubmit, isSaving, isAdmin, submitLabel
               className="flex h-10 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
             >
               {billingPeriods.map((period) => (
-                <option key={period} value={period}>
-                  {period}
+                <option key={period.value} value={period.value}>
+                  {period.label}
                 </option>
               ))}
             </select>
