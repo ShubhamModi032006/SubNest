@@ -6,6 +6,9 @@ const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const contactRoutes = require("./routes/contactRoutes");
 const productRoutes = require("./routes/productRoutes");
+const planRoutes = require("./routes/planRoutes");
+const taxRoutes = require("./routes/taxRoutes");
+const discountRoutes = require("./routes/discountRoutes");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
 const { requestLogger } = require("./middlewares/requestLogger");
 const { sendSuccess } = require("./utils/apiResponse");
@@ -46,6 +49,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/plans", planRoutes);
+app.use("/api/taxes", taxRoutes);
+app.use("/api/discounts", discountRoutes);
 
 // ─────────────────────────────────────────────
 // Error Handling (must be last)
