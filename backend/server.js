@@ -9,6 +9,7 @@ const productRoutes = require("./routes/productRoutes");
 const planRoutes = require("./routes/planRoutes");
 const taxRoutes = require("./routes/taxRoutes");
 const discountRoutes = require("./routes/discountRoutes");
+const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
 const { requestLogger } = require("./middlewares/requestLogger");
 const { sendSuccess } = require("./utils/apiResponse");
@@ -52,6 +53,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/plans", planRoutes);
 app.use("/api/taxes", taxRoutes);
 app.use("/api/discounts", discountRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 
 // ─────────────────────────────────────────────
 // Error Handling (must be last)
