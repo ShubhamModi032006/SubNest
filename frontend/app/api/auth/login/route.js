@@ -14,9 +14,11 @@ export async function POST(request) {
     }
 
     if (email === 'demo@example.com' && password === 'Password@123') {
+      const demoUser = { id: '1', name: 'Demo Admin', email, role: 'admin' };
+      const fakeJwt = Buffer.from(JSON.stringify(demoUser)).toString('base64');
       return NextResponse.json({
-        user: { id: '1', name: 'Demo User', email },
-        token: 'fake-jwt-token-xyz789'
+        user: demoUser,
+        token: fakeJwt
       }, { status: 200 });
     }
 
