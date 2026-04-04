@@ -202,6 +202,41 @@ const CREATE_PRODUCT_RECURRING_PRICES_TABLE = `
   );
 `;
 
+const CREATE_SUBSCRIPTIONS_TABLE = `
+  CREATE TABLE IF NOT EXISTS subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subscription_number VARCHAR(50) NOT NULL UNIQUE,
+    customer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    customer_contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
+    customer_type VARCHAR(20) NOT NULL CHECK (customer_type IN ('user', 'contact')),
+    plan_id UUID NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,
+    start_date DATE NOT NULL,
+    expiration_date DATE,
+    payment_terms VARCHAR(255),
+    status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'quotation', 'confirmed', 'active', 'closed')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CHECK (
+      (CASE WHEN customer_user_id IS NOT NULL THEN 1 ELSE 0 END +
+       CASE WHEN customer_contact_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+    )
+  );
+`;
+
+const CREATE_SUBSCRIPTION_ITEMS_TABLE = `
+  CREATE TABLE IF NOT EXISTS subscription_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subscription_id UUID NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0),
+    discount NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
+    tax NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (tax >= 0),
+    amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
 const CREATE_PRODUCTS_NAME_INDEX = `
   CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 `;
@@ -212,6 +247,26 @@ const CREATE_PRODUCT_VARIANTS_PRODUCT_ID_INDEX = `
 
 const CREATE_PRODUCT_RECURRING_PRICES_PRODUCT_ID_INDEX = `
   CREATE INDEX IF NOT EXISTS idx_product_recurring_prices_product_id ON product_recurring_prices(product_id);
+`;
+
+const CREATE_SUBSCRIPTIONS_NUMBER_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_subscriptions_number ON subscriptions(subscription_number);
+`;
+
+const CREATE_SUBSCRIPTIONS_CUSTOMER_USER_ID_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_user_id ON subscriptions(customer_user_id);
+`;
+
+const CREATE_SUBSCRIPTIONS_CUSTOMER_CONTACT_ID_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_contact_id ON subscriptions(customer_contact_id);
+`;
+
+const CREATE_SUBSCRIPTIONS_STATUS_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
+`;
+
+const CREATE_SUBSCRIPTION_ITEMS_SUBSCRIPTION_ID_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_subscription_items_subscription_id ON subscription_items(subscription_id);
 `;
 
 const CREATE_USERS_EMAIL_INDEX = `
@@ -307,6 +362,12 @@ const run = async () => {
     await appClient.query(CREATE_PRODUCT_RECURRING_PRICES_TABLE);
     console.log("✅ Table: product_recurring_prices — ready");
 
+    await appClient.query(CREATE_SUBSCRIPTIONS_TABLE);
+    console.log("✅ Table: subscriptions — ready");
+
+    await appClient.query(CREATE_SUBSCRIPTION_ITEMS_TABLE);
+    console.log("✅ Table: subscription_items — ready");
+
     await appClient.query(CREATE_DISCOUNTS_TABLE);
     console.log("✅ Table: discounts — ready");
 
@@ -316,6 +377,11 @@ const run = async () => {
     await appClient.query(CREATE_PRODUCTS_NAME_INDEX);
     await appClient.query(CREATE_PRODUCT_VARIANTS_PRODUCT_ID_INDEX);
     await appClient.query(CREATE_PRODUCT_RECURRING_PRICES_PRODUCT_ID_INDEX);
+    await appClient.query(CREATE_SUBSCRIPTIONS_NUMBER_INDEX);
+    await appClient.query(CREATE_SUBSCRIPTIONS_CUSTOMER_USER_ID_INDEX);
+    await appClient.query(CREATE_SUBSCRIPTIONS_CUSTOMER_CONTACT_ID_INDEX);
+    await appClient.query(CREATE_SUBSCRIPTIONS_STATUS_INDEX);
+    await appClient.query(CREATE_SUBSCRIPTION_ITEMS_SUBSCRIPTION_ID_INDEX);
     await appClient.query(CREATE_TAXES_NAME_INDEX);
     await appClient.query(CREATE_PLANS_NAME_INDEX);
     await appClient.query(CREATE_DISCOUNTS_NAME_INDEX);
