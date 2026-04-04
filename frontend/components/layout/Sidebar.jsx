@@ -18,7 +18,7 @@ import { allowRoles } from "@/lib/guards/roleGuard";
 const menuItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Subscriptions", href: "/subscriptions", icon: CreditCard },
-  { name: "Products", href: "/products", icon: Box },
+  { name: "Products", href: "/dashboard/products", icon: Box },
   { name: "Reporting", href: "/reporting", icon: BarChart3 },
   { name: "Users", href: "/dashboard/users", icon: Users },
   { name: "Contacts", href: "/dashboard/contacts", icon: Users },
