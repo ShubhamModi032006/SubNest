@@ -61,8 +61,9 @@ export default function SignupPage() {
 
     setError(null);
     try {
-      await signup(formData.name, formData.email, formData.password, formData.role);
-      router.push("/dashboard");
+      const data = await signup(formData.name, formData.email, formData.password, formData.role);
+      const role = String(data?.user?.role || formData.role || "user").toLowerCase();
+      router.push(role === "admin" || role === "internal" ? "/dashboard" : "/");
     } catch (err) {
       setError(err?.message || "An unexpected error occurred");
     }

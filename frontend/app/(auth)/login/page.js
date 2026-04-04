@@ -46,8 +46,9 @@ export default function LoginPage() {
 
     setError(null);
     try {
-      await login(formData.email, formData.password);
-      router.push("/dashboard");
+      const data = await login(formData.email, formData.password);
+      const role = String(data?.user?.role || "user").toLowerCase();
+      router.push(role === "admin" || role === "internal" ? "/dashboard" : "/");
     } catch (err) {
       setError(err?.message || "An unexpected error occurred");
     }

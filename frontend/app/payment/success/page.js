@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { fetchApi } from "@/lib/api";
 
 function formatStripeAmount(amountInMinorUnit, currency) {
   const normalized = Number(amountInMinorUnit || 0) / 100;
@@ -17,8 +18,8 @@ export default function PaymentSuccessPage() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id") || "";
   const invoiceIdFromQuery = searchParams.get("invoice_id") || "";
+  const source = searchParams.get("source") || "backend";
 
-  const fetchPaymentSession = useDataStore((state) => state.fetchPaymentSession);
   const fetchInvoiceById = useDataStore((state) => state.fetchInvoiceById);
   const loadingPayment = useDataStore((state) => state.loadingPayment);
 
@@ -33,10 +34,13 @@ export default function PaymentSuccessPage() {
       }
 
       try {
-        const result = await fetchPaymentSession(sessionId);
-        setTransaction(result);
+        if (source === "portal") {
+          await fetchApi(`/payments/session/${sessionId}/complete`, { method: "POST" });
+        }
 
-        const targetInvoiceId = result?.invoiceId || invoiceIdFromQuery;
+        const data = await fetchApi(`/payments/session/${sessionId}`);
+        setTransaction(data.session || data.payment || null);
+        const targetInvoiceId = data?.session?.metadata?.invoice_id || invoiceIdFromQuery || data?.invoice?.id;
         if (targetInvoiceId) {
           await fetchInvoiceById(targetInvoiceId);
         }
@@ -46,13 +50,14 @@ export default function PaymentSuccessPage() {
     };
 
     loadSession();
-  }, [sessionId, invoiceIdFromQuery, fetchPaymentSession, fetchInvoiceById]);
+  }, [sessionId, invoiceIdFromQuery, fetchInvoiceById, source]);
 
-  const invoiceId = transaction?.invoiceId || invoiceIdFromQuery;
-  const amountLabel = useMemo(
-    () => formatStripeAmount(transaction?.amountTotal, transaction?.currency),
-    [transaction?.amountTotal, transaction?.currency]
-  );
+  const invoiceId = transaction?.invoiceId || transaction?.metadata?.invoice_id || invoiceIdFromQuery;
+  const amountLabel = useMemo(() => {
+    const amountTotal = transaction?.amountTotal ?? transaction?.amount_total;
+    const currency = transaction?.currency || "usd";
+    return formatStripeAmount(amountTotal, currency);
+  }, [transaction?.amountTotal, transaction?.amount_total, transaction?.currency]);
 
   return (
     <section className="mx-auto flex min-h-[70vh] max-w-2xl flex-col items-center justify-center space-y-5 px-4 text-center">
@@ -82,12 +87,12 @@ export default function PaymentSuccessPage() {
 
       <div className="flex flex-wrap items-center justify-center gap-2">
         {invoiceId ? (
-          <Link href={`/dashboard/invoices/${invoiceId}`} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">
-            Back to Invoice
+          <Link href={source === "portal" ? "/my-invoices" : `/dashboard/invoices/${invoiceId}`} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">
+            {source === "portal" ? "Back to My Invoices" : "Back to Invoice"}
           </Link>
         ) : null}
-        <Link href="/dashboard/invoices" className="rounded-lg border border-border px-4 py-2 text-sm">
-          View All Invoices
+        <Link href={source === "portal" ? "/my-invoices" : "/dashboard/invoices"} className="rounded-lg border border-border px-4 py-2 text-sm">
+          {source === "portal" ? "View My Invoices" : "View All Invoices"}
         </Link>
       </div>
     </section>
