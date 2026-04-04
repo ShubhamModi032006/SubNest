@@ -6,6 +6,8 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SubscriptionEditor } from "@/components/subscriptions/SubscriptionEditor";
+import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
+import { SkeletonForm } from "@/components/ui/skeleton";
 import { useDataStore } from "@/store/dataStore";
 
 export default function SubscriptionDetailsPage() {
@@ -34,7 +36,7 @@ export default function SubscriptionDetailsPage() {
   }, [id, fetchSubscriptionById]);
 
   if (loading) {
-    return <p className="text-muted-foreground">Loading subscription...</p>;
+    return <SkeletonForm />;
   }
 
   if (!subscription) {
@@ -52,6 +54,27 @@ export default function SubscriptionDetailsPage() {
       </div>
 
       <SubscriptionEditor mode="edit" initialSubscription={subscription} />
+
+      <ActivityTimeline
+        title="Subscription Timeline"
+        events={[
+          {
+            type: "created",
+            label: "Subscription created",
+            timeLabel: subscription.createdAt ? new Date(subscription.createdAt).toLocaleString() : "Recently",
+          },
+          {
+            type: "updated",
+            label: "Subscription updated",
+            timeLabel: subscription.updatedAt ? new Date(subscription.updatedAt).toLocaleString() : "Status synchronized",
+          },
+          {
+            type: "approved",
+            label: "Approval state reviewed",
+            timeLabel: subscription.status || "Pending",
+          },
+        ]}
+      />
     </div>
   );
 }

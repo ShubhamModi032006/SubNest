@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
 import { fetchApi } from "@/lib/api";
+import { showError, showSuccess } from "@/lib/toast";
 
 function formatStripeAmount(amountInMinorUnit, currency) {
   const normalized = Number(amountInMinorUnit || 0) / 100;
@@ -44,8 +45,10 @@ export default function PaymentSuccessPage() {
         if (targetInvoiceId) {
           await fetchInvoiceById(targetInvoiceId);
         }
+        showSuccess("Payment success");
       } catch (err) {
         setError(err.message || "Unable to verify Stripe payment session.");
+        showError(err.message || "Something went wrong");
       }
     };
 

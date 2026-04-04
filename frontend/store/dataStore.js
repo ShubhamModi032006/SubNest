@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { fetchApi } from '@/lib/api';
+import { showError, showInfo, showSuccess, showWarning } from '@/lib/toast';
 
 const getPayload = (response) => response?.data ?? response;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -376,6 +377,7 @@ export const useDataStore = create((set, get) => ({
     const data = getPayload(response);
     const normalized = normalizeSubscription(data.subscription);
     set((state) => ({ subscriptions: [normalized, ...state.subscriptions] }));
+    showSuccess('Subscription created');
     return normalized;
   },
 
@@ -391,6 +393,7 @@ export const useDataStore = create((set, get) => ({
         item.id === id ? normalized : item
       ),
     }));
+    showSuccess('Subscription updated');
     return normalized;
   },
 
@@ -765,6 +768,7 @@ export const useDataStore = create((set, get) => ({
     set((state) => ({
       invoices: state.invoices.map((item) => (item.id === id ? refreshed : item)),
     }));
+    showSuccess(`Invoice ${action} action completed`);
     return refreshed;
   },
 
@@ -781,12 +785,14 @@ export const useDataStore = create((set, get) => ({
         ? state.invoices.map((item) => (item.id === invoice.id ? invoice : item))
         : [invoice, ...state.invoices],
     }));
+    showSuccess('Invoice generated');
     return invoice;
   },
 
   createPaymentSession: async (invoiceId) => {
     set({ loadingPayment: true, paymentStatus: 'creating', error: null });
     try {
+      showInfo('Redirecting to payment...');
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       const successUrl = `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}&invoice_id=${encodeURIComponent(invoiceId)}`;
       const cancelUrl = `${origin}/payment/cancel?invoice_id=${encodeURIComponent(invoiceId)}`;
@@ -819,6 +825,7 @@ export const useDataStore = create((set, get) => ({
       return transaction;
     } catch (err) {
       set({ loadingPayment: false, paymentStatus: 'failed', error: err.message });
+      showError(err.message || 'Something went wrong');
       throw err;
     }
   },
@@ -854,9 +861,15 @@ export const useDataStore = create((set, get) => ({
         paymentStatus: normalizedStatus === 'paid' ? 'paid' : normalizedStatus || 'checked',
         lastTransaction: transaction,
       });
+      if (normalizedStatus === 'paid') {
+        showSuccess('Payment success');
+      } else if (normalizedStatus === 'failed') {
+        showWarning('Payment requires attention');
+      }
       return transaction;
     } catch (err) {
       set({ loadingPayment: false, paymentStatus: 'failed', error: err.message });
+      showError(err.message || 'Something went wrong');
       throw err;
     }
   },

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { fetchApi } from "@/lib/api";
+import { showWarning } from "@/lib/toast";
 
 export default function PaymentCancelPage() {
   const searchParams = useSearchParams();
@@ -15,6 +16,7 @@ export default function PaymentCancelPage() {
     : (invoiceId ? `/dashboard/invoices/${invoiceId}/pay` : "/dashboard/invoices");
 
   useEffect(() => {
+    showWarning("Payment flow was cancelled");
     if (source !== "portal" || !sessionId) return;
     fetchApi(`/payments/session/${sessionId}/fail`, { method: "POST" }).catch(() => null);
   }, [source, sessionId]);

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useDataStore } from "@/store/dataStore";
 import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
+import { SkeletonTableRows } from "@/components/ui/skeleton";
 import { Plus } from "lucide-react";
 import { canCreateInvoice, canTriggerInvoicePayment } from "@/lib/rbac/permissions";
 
@@ -77,7 +78,7 @@ export default function InvoicesPage() {
           </thead>
           <tbody className="divide-y divide-border/40">
             {loadingInvoices ? (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Loading invoices...</td></tr>
+              <tr><td colSpan={9}><SkeletonTableRows rows={6} cols={9} /></td></tr>
             ) : visibleInvoices.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">No invoices found.</td></tr>
             ) : (

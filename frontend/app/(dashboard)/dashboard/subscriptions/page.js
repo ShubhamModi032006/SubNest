@@ -6,6 +6,7 @@ import { useDataStore } from "@/store/dataStore";
 import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SkeletonTableRows } from "@/components/ui/skeleton";
 import { Search, Plus } from "lucide-react";
 
 const PAGE_SIZE = 8;
@@ -93,8 +94,8 @@ export default function SubscriptionsPage() {
             </thead>
             <tbody className="divide-y divide-border/50">
               {loadingSubscriptions ? (
-                <tr><td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">Loading subscriptions...</td></tr>
-              ) : paginated.length === 0 ? (
+                  <tr><td colSpan={5}><SkeletonTableRows rows={6} cols={5} /></td></tr>
+                ) : paginated.length === 0 ? (
                 <tr><td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">No subscriptions found.</td></tr>
               ) : (
                 paginated.map((item) => (

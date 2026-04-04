@@ -1,3 +1,5 @@
+import { showError, showSuccess } from "@/lib/toast";
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 export async function fetchApi(endpoint, options = {}) {
@@ -33,10 +35,18 @@ export async function fetchApi(endpoint, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    const error = new Error(data.message || data.error || "Something went wrong");
+    const message = data.message || data.error || "Something went wrong";
+    if (!options?.silentErrorToast) {
+      showError(message);
+    }
+    const error = new Error(message);
     error.status = response.status;
     error.payload = data;
     throw error;
+  }
+
+  if (options?.successToastMessage) {
+    showSuccess(options.successToastMessage);
   }
 
   return data;

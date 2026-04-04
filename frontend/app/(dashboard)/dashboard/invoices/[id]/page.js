@@ -10,7 +10,9 @@ import { InvoiceTable } from "@/components/invoices/InvoiceTable";
 import { InvoiceSummaryCard } from "@/components/invoices/InvoiceSummaryCard";
 import { PrintableInvoiceLayout } from "@/components/invoices/PrintableInvoiceLayout";
 import { ApprovalRequestModal } from "@/components/approvals/ApprovalRequestModal";
+import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
 import { canCancelInvoice, canTriggerInvoicePayment } from "@/lib/rbac/permissions";
+import { showError, showInfo } from "@/lib/toast";
 
 const statusStep = ["draft", "confirmed", "sent", "cancelled"];
 
@@ -28,8 +30,6 @@ export default function InvoiceDetailPage() {
 
   const [busyAction, setBusyAction] = useState("");
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
-  const [paymentToast, setPaymentToast] = useState("");
-  const [paymentError, setPaymentError] = useState("");
 
   useEffect(() => {
     fetchInvoices();
@@ -90,8 +90,7 @@ export default function InvoiceDetailPage() {
   const handlePayNow = async () => {
     if (!invoice?.id || !allowPayNow) return;
 
-    setPaymentError("");
-    setPaymentToast("Redirecting to payment...");
+    showInfo("Redirecting to payment...");
     try {
       const session = await createPaymentSession(invoice.id);
       if (!session?.checkoutUrl) {
@@ -99,8 +98,7 @@ export default function InvoiceDetailPage() {
       }
       window.location.assign(session.checkoutUrl);
     } catch (err) {
-      setPaymentError(err.message || "Failed to start payment");
-      setPaymentToast("");
+      showError(err.message || "Something went wrong");
     }
   };
 
@@ -134,18 +132,6 @@ export default function InvoiceDetailPage() {
             <span>{notification.message}</span>
             <button type="button" onClick={clearNotification} className="text-xs font-semibold uppercase">Dismiss</button>
           </div>
-        </div>
-      ) : null}
-
-      {paymentToast ? (
-        <div className="rounded-lg border border-blue-300/40 bg-blue-500/10 px-4 py-2 text-sm text-blue-200">
-          {paymentToast}
-        </div>
-      ) : null}
-
-      {paymentError ? (
-        <div className="rounded-lg border border-red-300/40 bg-red-500/10 px-4 py-2 text-sm text-red-200">
-          {paymentError}
         </div>
       ) : null}
 
@@ -239,6 +225,31 @@ export default function InvoiceDetailPage() {
         <div className="space-y-5">
           <InvoiceTable lines={invoice.lines || []} />
           <PrintableInvoiceLayout invoice={invoice} />
+          <ActivityTimeline
+            title="Invoice Timeline"
+            events={[
+              {
+                type: "created",
+                label: "Invoice created",
+                timeLabel: invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleString() : "Recently",
+              },
+              {
+                type: "updated",
+                label: "Invoice updated",
+                timeLabel: invoice.updatedAt ? new Date(invoice.updatedAt).toLocaleString() : "Status synchronized",
+              },
+              {
+                type: "paid",
+                label: invoice.isPaid ? "Payment success" : "Payment pending",
+                timeLabel: invoice.paymentDate ? new Date(invoice.paymentDate).toLocaleString() : "Not paid yet",
+              },
+              {
+                type: "approved",
+                label: "Approval updates",
+                timeLabel: invoice.status || "draft",
+              },
+            ]}
+          />
         </div>
         <InvoiceSummaryCard invoice={invoice} />
       </div>

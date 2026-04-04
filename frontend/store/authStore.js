@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { fetchApi } from '@/lib/api'
+import { showError, showInfo, showSuccess } from '@/lib/toast'
 
 const getPayload = (response) => response?.data ?? response
 
@@ -26,9 +27,11 @@ export const useAuthStore = create(
           });
           const data = getPayload(response);
           set({ user: data.user ?? null, token: data.token ?? null, isAuthenticated: true, loading: false });
+          showSuccess("Login successful");
           return data;
         } catch (err) {
           set({ error: err.message, loading: false });
+          showError(err.message || "Login failed");
           throw err;
         }
       },
@@ -43,12 +46,14 @@ export const useAuthStore = create(
           const data = getPayload(response);
           if (data.user && data.token) {
             set({ user: data.user, token: data.token, isAuthenticated: true, loading: false });
+            showSuccess("Account created successfully");
           } else {
             set({ loading: false });
           }
           return data;
         } catch (err) {
           set({ error: err.message, loading: false });
+          showError(err.message || "Signup failed");
           throw err;
         }
       },
@@ -77,6 +82,7 @@ export const useAuthStore = create(
 
       logout: () => {
         set({ user: null, token: null, isAuthenticated: false, error: null });
+        showInfo("Logged out successfully");
         if (typeof window !== 'undefined') {
           // Clear any extra local storage if needed beyond persist middleware
           window.location.href = '/login';

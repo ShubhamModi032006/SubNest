@@ -5,8 +5,10 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCartStore } from "@/store/cartStore";
 import { useAuthStore } from "@/store/authStore";
+import { useTheme } from "@/components/providers/ThemeProvider";
+import { subscribeToToasts } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { ShoppingCart, Home, Store, UserRound, Loader2, LogOut } from "lucide-react";
+import { ShoppingCart, Home, Store, UserRound, Loader2, LogOut, Bell, Sun, Moon } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home },
@@ -20,7 +22,10 @@ export function PortalShell({ title, subtitle, children, showBackdrop = true }) 
   const pathname = usePathname();
   const cartCount = useCartStore((state) => state.items.reduce((sum, item) => sum + item.quantity, 0));
   const { user, token, logout } = useAuthStore();
+  const { theme, toggleTheme } = useTheme();
   const [hydrated, setHydrated] = useState(useAuthStore.persist.hasHydrated());
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
@@ -28,6 +33,21 @@ export function PortalShell({ title, subtitle, children, showBackdrop = true }) 
     });
 
     setHydrated(useAuthStore.persist.hasHydrated());
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToToasts((toast) => {
+      setNotifications((prev) => [
+        {
+          id: toast.id,
+          title: String(toast.message || "Notification"),
+          createdAt: toast.createdAt,
+        },
+        ...prev,
+      ].slice(0, 6));
+    });
+
     return unsubscribe;
   }, []);
 
@@ -98,6 +118,45 @@ export function PortalShell({ title, subtitle, children, showBackdrop = true }) 
               Cart
               <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">{cartCount}</span>
             </Link>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/50 bg-card/60 text-foreground hover:bg-white/5"
+              title="Toggle theme"
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen((open) => !open)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/50 bg-card/60 text-foreground hover:bg-white/5"
+                title="Notifications"
+              >
+                <Bell className="h-4 w-4" />
+                {notifications.length > 0 ? (
+                  <span className="absolute -right-1 -top-1 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
+                    {Math.min(notifications.length, 9)}
+                  </span>
+                ) : null}
+              </button>
+              {notificationsOpen ? (
+                <div className="absolute right-0 top-12 z-50 w-72 rounded-xl border border-border/50 bg-card/95 p-3 shadow-2xl backdrop-blur-xl">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Recent notifications</p>
+                  <div className="mt-2 space-y-2">
+                    {notifications.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No notifications yet.</p>
+                    ) : (
+                      notifications.map((item) => (
+                        <div key={item.id} className="rounded-lg border border-border/50 bg-background/50 px-3 py-2 text-sm">
+                          {item.title}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={logout}

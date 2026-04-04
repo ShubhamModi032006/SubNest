@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { fetchApi } from "@/lib/api";
+import { showError, showInfo, showSuccess, showWarning } from "@/lib/toast";
 
 const getPayload = (response) => response?.data ?? response;
 
@@ -46,6 +47,7 @@ export const useApprovalStore = create((set, get) => ({
             message: "Request sent to admin",
           },
         }));
+        showWarning("Requires admin approval");
       } else {
         set({ creatingRequest: false });
       }
@@ -59,6 +61,7 @@ export const useApprovalStore = create((set, get) => ({
           message: err.message || "Failed to create approval request",
         },
       });
+      showError(err.message || "Something went wrong");
       throw err;
     }
   },
@@ -72,6 +75,7 @@ export const useApprovalStore = create((set, get) => ({
           requests: state.requests.map((item) => (item.id === id ? data.approval : item)),
           notification: { type: "success", message: "Approval approved" },
         }));
+        showSuccess("Approval updated");
       }
       return data;
     } catch (err) {
@@ -82,6 +86,7 @@ export const useApprovalStore = create((set, get) => ({
           message: err.message || "Failed to approve request",
         },
       });
+      showError(err.message || "Something went wrong");
       throw err;
     }
   },
@@ -95,6 +100,7 @@ export const useApprovalStore = create((set, get) => ({
           requests: state.requests.map((item) => (item.id === id ? data.approval : item)),
           notification: { type: "success", message: "Approval rejected" },
         }));
+        showInfo("Approval decision recorded");
       }
       return data;
     } catch (err) {
@@ -105,6 +111,7 @@ export const useApprovalStore = create((set, get) => ({
           message: err.message || "Failed to reject request",
         },
       });
+      showError(err.message || "Something went wrong");
       throw err;
     }
   },
