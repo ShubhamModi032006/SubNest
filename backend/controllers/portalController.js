@@ -12,6 +12,7 @@ const {
 const { cached, invalidateTag, invalidateByPrefix } = require("../services/cacheService");
 const { logActivity } = require("../services/activityLogService");
 const { createNotification } = require("../services/notificationService");
+const { createInvoiceFromSubscriptionInternal } = require("./invoiceController");
 
 const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -298,6 +299,173 @@ const getPortalProducts = async (req, res) => {
   return sendSuccess(res, 200, { products }, "Products fetched successfully.");
 };
 
+const getPortalSubscriptions = async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT s.id, s.subscription_number, s.plan_id, s.start_date, s.expiration_date, s.payment_terms, s.status, s.created_at, s.is_public,
+              p.name AS plan_name,
+              COALESCE(SUM(si.amount), 0)::NUMERIC AS amount_total
+       FROM subscriptions s
+       LEFT JOIN plans p ON p.id = s.plan_id
+       LEFT JOIN subscription_items si ON si.subscription_id = s.id
+       WHERE s.is_public = TRUE
+       GROUP BY s.id, p.name
+       ORDER BY s.created_at DESC`
+    );
+
+    const subscriptions = result.rows.map((row) => ({
+      id: row.id,
+      subscriptionNumber: row.subscription_number,
+      planId: row.plan_id,
+      planName: row.plan_name,
+      isPublic: Boolean(row.is_public),
+      startDate: row.start_date,
+      expirationDate: row.expiration_date,
+      paymentTerms: row.payment_terms,
+      status: row.status,
+      amountTotal: Number(row.amount_total || 0),
+      createdAt: row.created_at,
+    }));
+
+    return sendSuccess(res, 200, { subscriptions }, "Subscription catalog fetched successfully.");
+  } catch (error) {
+    next(error);
+  }
+};
+
+const purchasePortalSubscription = async (req, res, next) => {
+  try {
+    const userId = String(req.user?.id || "").trim();
+    const sourceSubscriptionId = String(req.params.id || "").trim();
+
+    if (!userId) {
+      return sendError(res, 401, "Authentication required.");
+    }
+
+    if (!sourceSubscriptionId) {
+      return sendError(res, 400, "Subscription id is required.");
+    }
+
+    const result = await withTransaction(async (client) => {
+      const sourceResult = await client.query(
+        `SELECT id, plan_id, expiration_date, payment_terms, is_public
+         FROM subscriptions
+         WHERE id = $1
+         FOR UPDATE`,
+        [sourceSubscriptionId]
+      );
+
+      if (sourceResult.rows.length === 0) {
+        const error = new Error("Subscription offering not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const source = sourceResult.rows[0];
+      if (!source.is_public) {
+        const error = new Error("This subscription is not available for purchase.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const sourceItemsResult = await client.query(
+        `SELECT product_id, variant_id, quantity, unit_price, discount, tax, amount
+         FROM subscription_items
+         WHERE subscription_id = $1
+         ORDER BY created_at ASC`,
+        [sourceSubscriptionId]
+      );
+
+      if (sourceItemsResult.rows.length === 0) {
+        const error = new Error("Subscription offering has no items.");
+        error.statusCode = 400;
+        throw error;
+      }
+
+      let subscriptionNumber = generateSubscriptionNumber();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const existing = await client.query(
+          "SELECT id FROM subscriptions WHERE subscription_number = $1",
+          [subscriptionNumber]
+        );
+        if (existing.rows.length === 0) {
+          break;
+        }
+        subscriptionNumber = generateSubscriptionNumber();
+      }
+
+      const insertedSubscription = await client.query(
+        `INSERT INTO subscriptions (
+          subscription_number, is_public, created_by,
+          customer_id, customer_user_id, customer_contact_id, customer_type,
+          plan_id, start_date, expiration_date, payment_terms, status
+        )
+        VALUES ($1, FALSE, $2, $3, $4, NULL, 'user', $5, CURRENT_DATE, $6, $7, 'confirmed')
+        RETURNING id`,
+        [
+          subscriptionNumber,
+          req.user?.id || null,
+          userId,
+          userId,
+          source.plan_id,
+          source.expiration_date || null,
+          source.payment_terms || null,
+        ]
+      );
+
+      const newSubscriptionId = insertedSubscription.rows[0].id;
+
+      const itemValues = [];
+      const itemPlaceholders = sourceItemsResult.rows.map((item, index) => {
+        const baseIndex = index * 8;
+        itemValues.push(
+          newSubscriptionId,
+          item.product_id,
+          item.variant_id,
+          item.quantity,
+          item.unit_price,
+          item.discount,
+          item.tax,
+          item.amount
+        );
+        return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8})`;
+      });
+
+      await client.query(
+        `INSERT INTO subscription_items (subscription_id, product_id, variant_id, quantity, unit_price, discount, tax, amount)
+         VALUES ${itemPlaceholders.join(", ")}`,
+        itemValues
+      );
+
+      return {
+        subscriptionId: newSubscriptionId,
+      };
+    });
+
+    const invoiceId = await createInvoiceFromSubscriptionInternal(result.subscriptionId);
+    await pool.query(`UPDATE invoices SET status = 'confirmed', confirmed_at = NOW() WHERE id = $1`, [invoiceId]);
+
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("reports:");
+
+    await createNotification({
+      userId,
+      type: "subscription",
+      message: `Subscription purchased successfully. Invoice ${invoiceId} is ready.`,
+    });
+
+    return sendSuccess(
+      res,
+      201,
+      { subscription_id: result.subscriptionId, invoice_id: invoiceId },
+      "Subscription purchased successfully."
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 const createOrder = async (req, res, next) => {
   try {
     const userId = String(req.user?.id || "").trim();
@@ -341,10 +509,36 @@ const createOrder = async (req, res, next) => {
         return { order, duplicate: true };
       }
 
-      const { normalizedItems } = await normalizeOrderItems(client, items);
-      const subtotal = roundMoney(normalizedItems.reduce((sum, item) => sum + item.subtotal, 0));
-      const taxTotal = roundMoney(normalizedItems.reduce((sum, item) => sum + item.taxAmount, 0));
-      const quantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0);
+      // Separate product and subscription items
+      const productItems = items.filter(item => !item.itemType || item.itemType !== "subscription" && !item.subscriptionId);
+      const subscriptionItems = items.filter(item => item.itemType === "subscription" || item.subscriptionId);
+
+      let normalizedItems = [];
+      let subtotal = 0;
+      let taxTotal = 0;
+      let quantity = 0;
+
+      // Process product items if any
+      if (productItems && productItems.length > 0) {
+        const normResult = await normalizeOrderItems(client, productItems);
+        normalizedItems = normResult?.normalizedItems || [];
+        subtotal = roundMoney(normalizedItems.reduce((sum, item) => sum + (Number(item?.subtotal) || 0), 0));
+        taxTotal = roundMoney(normalizedItems.reduce((sum, item) => sum + (Number(item?.taxAmount) || 0), 0));
+        quantity = normalizedItems.reduce((sum, item) => sum + (Number(item?.quantity) || 1), 0);
+      }
+
+      // Process subscription items - they already have price calculated
+      if (subscriptionItems && subscriptionItems.length > 0) {
+        subscriptionItems.forEach(item => {
+          const unitPrice = Number(item?.unitPrice || 0);
+          const itemQty = Math.max(1, Number(item?.quantity || 1));
+          subtotal += unitPrice * itemQty;
+          quantity += itemQty;
+        });
+      }
+
+      subtotal = roundMoney(Math.max(0, subtotal));
+
       const discount = await getDiscount(client, discountCode);
       const { discountAmount, discountApplied } = buildDiscountAmount({ discount, subtotal, quantity });
       const totalAmount = roundMoney(Math.max(0, subtotal + taxTotal - discountAmount));
@@ -383,11 +577,13 @@ const createOrder = async (req, res, next) => {
         return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7})`;
       });
 
-      await client.query(
-        `INSERT INTO order_items (order_id, product_id, variant_id, plan_id, quantity, price, line_total)
-         VALUES ${orderItemPlaceholders.join(", ")}`,
-        orderItemValues
-      );
+      if (orderItemPlaceholders.length > 0) {
+        await client.query(
+          `INSERT INTO order_items (order_id, product_id, variant_id, plan_id, quantity, price, line_total)
+           VALUES ${orderItemPlaceholders.join(", ")}`,
+          orderItemValues
+        );
+      }
 
       const defaultPlanResult = await client.query(
         `SELECT id
@@ -445,8 +641,12 @@ const createOrder = async (req, res, next) => {
       const invoiceId = invoiceInsert.rows[0].id;
 
       const invoiceItemValues = [];
-      const invoiceItemPlaceholders = normalizedItems.map((item, index) => {
-        const baseIndex = index * 8;
+      const invoiceItemPlaceholders = [];
+      let itemIndex = 0;
+
+      // Add product invoice items
+      normalizedItems.forEach((item) => {
+        const baseIndex = itemIndex * 8;
         invoiceItemValues.push(
           invoiceId,
           null,
@@ -457,14 +657,34 @@ const createOrder = async (req, res, next) => {
           item.taxAmount,
           item.total
         );
-        return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8})`;
+        invoiceItemPlaceholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8})`);
+        itemIndex += 1;
       });
 
-      await client.query(
-        `INSERT INTO invoice_items (invoice_id, product_id, description, quantity, unit_price, discount, tax, total)
-         VALUES ${invoiceItemPlaceholders.join(", ")}`,
-        invoiceItemValues
-      );
+      // Add subscription invoice items
+      subscriptionItems.forEach((item) => {
+        const baseIndex = itemIndex * 8;
+        invoiceItemValues.push(
+          invoiceId,
+          null,
+          item.subscriptionNumber || item.planName || "Subscription",
+          item.quantity,
+          item.unitPrice,
+          0,
+          0,
+          Number(item.unitPrice || 0) * Number(item.quantity || 1)
+        );
+        invoiceItemPlaceholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8})`);
+        itemIndex += 1;
+      });
+
+      if (invoiceItemPlaceholders.length > 0) {
+        await client.query(
+          `INSERT INTO invoice_items (invoice_id, product_id, description, quantity, unit_price, discount, tax, total)
+           VALUES ${invoiceItemPlaceholders.join(", ")}`,
+          invoiceItemValues
+        );
+      }
 
       await client.query(
         `UPDATE orders
@@ -571,6 +791,44 @@ const getMyOrderById = async (req, res, next) => {
     } finally {
       client.release();
     }
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getMySubscriptions = async (req, res, next) => {
+  try {
+    const userId = String(req.user?.id || "").trim();
+    const result = await pool.query(
+      `SELECT s.id, s.subscription_number, s.customer_type, s.customer_id, s.customer_user_id, s.customer_contact_id,
+              s.plan_id, s.start_date, s.expiration_date, s.payment_terms, s.status, s.created_at,
+              p.name AS plan_name,
+              COALESCE(SUM(si.amount), 0)::NUMERIC AS amount_total
+       FROM subscriptions s
+       LEFT JOIN plans p ON p.id = s.plan_id
+       LEFT JOIN subscription_items si ON si.subscription_id = s.id
+       WHERE COALESCE(s.customer_user_id, s.customer_id) = $1
+       GROUP BY s.id, p.name
+       ORDER BY s.created_at DESC`,
+      [userId]
+    );
+
+    const subscriptions = result.rows.map((row) => ({
+      id: row.id,
+      subscriptionNumber: row.subscription_number,
+      customerType: row.customer_type,
+      customerId: row.customer_id || row.customer_user_id || row.customer_contact_id,
+      planId: row.plan_id,
+      planName: row.plan_name,
+      startDate: row.start_date,
+      expirationDate: row.expiration_date,
+      paymentTerms: row.payment_terms,
+      status: row.status,
+      amountTotal: Number(row.amount_total || 0),
+      createdAt: row.created_at,
+    }));
+
+    return sendSuccess(res, 200, { subscriptions }, "Subscriptions fetched successfully.");
   } catch (error) {
     next(error);
   }
@@ -727,11 +985,97 @@ const getSubscriptionStats = async (req, res, next) => {
   }
 };
 
+const previewOrderPricing = async (req, res, next) => {
+  try {
+    const userId = String(req.user?.id || "").trim();
+    if (!userId) {
+      return sendError(res, 401, "Authentication required.");
+    }
+
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (items.length === 0) {
+      return sendSuccess(
+        res,
+        200,
+        {
+          pricing: {
+            subtotal: 0,
+            tax: 0,
+            discountTotal: 0,
+            total: 0,
+            quantity: 0,
+            discount: null,
+          },
+        },
+        "Order pricing preview calculated."
+      );
+    }
+
+    const discountCode = String(req.body?.discountCode || req.body?.discount_code || "").trim();
+
+    const pricing = await withTransaction(async (client) => {
+      // Separate product and subscription items
+      const productItems = items.filter(item => item.itemType !== "subscription" && !item.subscriptionId);
+      const subscriptionItems = items.filter(item => item.itemType === "subscription" || item.subscriptionId);
+
+      let normalizedItems = [];
+      let subtotal = 0;
+      let taxTotal = 0;
+      let quantity = 0;
+
+      // Process product items if any
+      if (productItems.length > 0) {
+        const result = await normalizeOrderItems(client, productItems);
+        normalizedItems = result.normalizedItems;
+        subtotal = roundMoney(normalizedItems.reduce((sum, item) => sum + item.subtotal, 0));
+        taxTotal = roundMoney(normalizedItems.reduce((sum, item) => sum + item.taxAmount, 0));
+        quantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0);
+      }
+
+      // Process subscription items - they already have price calculated
+      subscriptionItems.forEach(item => {
+        subtotal += Number(item.unitPrice || 0) * Number(item.quantity || 1);
+        quantity += Number(item.quantity || 1);
+      });
+
+      subtotal = roundMoney(subtotal);
+
+      const discount = await getDiscount(client, discountCode);
+      const { discountAmount, discountApplied } = buildDiscountAmount({ discount, subtotal, quantity });
+      const totalAmount = roundMoney(Math.max(0, subtotal + taxTotal - discountAmount));
+
+      return {
+        subtotal,
+        tax: taxTotal,
+        discountTotal: discountAmount,
+        total: totalAmount,
+        quantity,
+        discount: discountApplied
+          ? {
+              id: discountApplied.id || null,
+              name: discountApplied.name,
+              type: discountApplied.type,
+              value: Number(discountApplied.value || 0),
+            }
+          : null,
+      };
+    });
+
+    return sendSuccess(res, 200, { pricing }, "Order pricing preview calculated.");
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getPortalProducts,
+  getPortalSubscriptions,
+  purchasePortalSubscription,
   createOrder,
+  previewOrderPricing,
   getMyOrders,
   getMyOrderById,
+  getMySubscriptions,
   getMyInvoices,
   getReportsSummary,
   getRevenueTrend,
