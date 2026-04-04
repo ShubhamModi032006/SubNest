@@ -4,15 +4,34 @@ export const useDataStore = create((set, get) => ({
   users: [],
   contacts: [],
   products: [],
+  subscriptions: [],
   plans: [],
   taxes: [],
   discounts: [],
   loadingUsers: false,
   loadingContacts: false,
   loadingProducts: false,
+  loadingSubscriptions: false,
   loadingPlans: false,
   loadingTaxes: false,
   loadingDiscounts: false,
+  subscriptionDraft: {
+    customerId: "",
+    customerType: "user",
+    customerLabel: "",
+    quotationTemplate: "",
+    recurringPlanId: "",
+    recurringPlanLabel: "",
+    startDate: "",
+    expirationDate: "",
+    paymentTerms: "Due on receipt",
+    nextInvoiceDate: "",
+    salesperson: "",
+    paymentMethod: "",
+    notes: "",
+    status: "Draft",
+    orderLines: [],
+  },
   error: null,
 
   fetchUsers: async (force = false) => {
@@ -134,6 +153,93 @@ export const useDataStore = create((set, get) => ({
     } catch (err) {
       set({ error: err.message, loadingProducts: false });
     }
+  },
+
+  fetchSubscriptions: async (force = false) => {
+    if (get().subscriptions.length > 0 && !force) return;
+    set({ loadingSubscriptions: true, error: null });
+    try {
+      const res = await fetch('/api/subscriptions');
+      if (!res.ok) throw new Error('Failed to fetch subscriptions');
+      const data = await res.json();
+      set({ subscriptions: data.subscriptions || [], loadingSubscriptions: false });
+    } catch (err) {
+      set({ error: err.message, loadingSubscriptions: false });
+    }
+  },
+
+  createSubscription: async (payload) => {
+    const res = await fetch('/api/subscriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to create subscription');
+    set((state) => ({ subscriptions: [data.subscription, ...state.subscriptions] }));
+    return data.subscription;
+  },
+
+  updateSubscription: async (id, payload) => {
+    const res = await fetch(`/api/subscriptions/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to update subscription');
+    set((state) => ({
+      subscriptions: state.subscriptions.map((item) =>
+        item.id === id ? data.subscription : item
+      ),
+    }));
+    return data.subscription;
+  },
+
+  runSubscriptionAction: async (id, action) => {
+    const res = await fetch(`/api/subscriptions/${id}/${action}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || `Failed to ${action} subscription`);
+    set((state) => ({
+      subscriptions: state.subscriptions.map((item) =>
+        item.id === id ? data.subscription : item
+      ),
+    }));
+    return data.subscription;
+  },
+
+  setSubscriptionDraft: (patch) => {
+    set((state) => ({
+      subscriptionDraft: { ...state.subscriptionDraft, ...patch },
+    }));
+  },
+
+  setSubscriptionOrderLines: (orderLines) => {
+    set((state) => ({
+      subscriptionDraft: { ...state.subscriptionDraft, orderLines },
+    }));
+  },
+
+  resetSubscriptionDraft: () => {
+    set({
+      subscriptionDraft: {
+        customerId: "",
+        customerType: "user",
+        customerLabel: "",
+        quotationTemplate: "",
+        recurringPlanId: "",
+        recurringPlanLabel: "",
+        startDate: "",
+        expirationDate: "",
+        paymentTerms: "Due on receipt",
+        nextInvoiceDate: "",
+        salesperson: "",
+        paymentMethod: "",
+        notes: "",
+        status: "Draft",
+        orderLines: [],
+      },
+    });
   },
 
   deleteProduct: async (id) => {
