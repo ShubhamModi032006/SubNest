@@ -3,6 +3,8 @@ const express = require("express");
 const cors = require("cors");
 const { createTables } = require("./models/schema");
 const authRoutes = require("./routes/authRoutes");
+const userRoutes = require("./routes/userRoutes");
+const contactRoutes = require("./routes/contactRoutes");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
 const { requestLogger } = require("./middlewares/requestLogger");
 const { sendSuccess } = require("./utils/apiResponse");
@@ -40,6 +42,8 @@ app.get("/api/health", (req, res) => {
 // API Routes
 // ─────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/contacts", contactRoutes);
 
 // ─────────────────────────────────────────────
 // Error Handling (must be last)
