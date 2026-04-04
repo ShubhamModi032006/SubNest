@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const pool = require("../models/db");
 const { validatePassword } = require("../utils/passwordValidator");
 const { sendPasswordResetEmail } = require("../utils/emailService");
+const { sendSuccess, sendError } = require("../utils/apiResponse");
 
 const SALT_ROUNDS = 12;
 const RESET_TOKEN_EXPIRY_HOURS = 1;
@@ -30,29 +31,23 @@ const signup = async (req, res, next) => {
 
     // --- Basic field validation ---
     if (!name || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Name, email, and password are required.",
-      });
+      return sendError(res, 400, "Name, email, and password are required.");
     }
 
     // --- Email format validation ---
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a valid email address.",
-      });
+      return sendError(res, 400, "Please provide a valid email address.");
     }
 
     // --- Password strength validation ---
     const { isValid, errors } = validatePassword(password);
     if (!isValid) {
-      return res.status(400).json({
-        success: false,
-        message: "Password does not meet requirements.",
-        errors,
-      });
+      return sendError(
+        res,
+        400,
+        `Password does not meet requirements: ${errors.join(" ")}`
+      );
     }
 
     // --- Check if email already exists ---
@@ -61,10 +56,7 @@ const signup = async (req, res, next) => {
       [email.toLowerCase()]
     );
     if (existingUser.rows.length > 0) {
-      return res.status(409).json({
-        success: false,
-        message: "An account with this email already exists.",
-      });
+      return sendError(res, 409, "An account with this email already exists.");
     }
 
     // --- Hash password ---
@@ -81,9 +73,10 @@ const signup = async (req, res, next) => {
     const newUser = result.rows[0];
     const token = generateToken(newUser);
 
-    return res.status(201).json({
-      success: true,
-      data: {
+    return sendSuccess(
+      res,
+      201,
+      {
         token,
         user: {
           id: newUser.id,
@@ -93,8 +86,8 @@ const signup = async (req, res, next) => {
           created_at: newUser.created_at,
         },
       },
-      message: "Account created successfully.",
-    });
+      "Account created successfully."
+    );
   } catch (error) {
     next(error);
   }
@@ -111,10 +104,7 @@ const login = async (req, res, next) => {
 
     // --- Basic field validation ---
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required.",
-      });
+      return sendError(res, 400, "Email and password are required.");
     }
 
     // --- Find user by email ---
@@ -124,10 +114,7 @@ const login = async (req, res, next) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password.",
-      });
+      return sendError(res, 401, "Invalid email or password.");
     }
 
     const user = result.rows[0];
@@ -135,18 +122,16 @@ const login = async (req, res, next) => {
     // --- Compare password ---
     const isPasswordMatch = await bcrypt.compare(password, user.password);
     if (!isPasswordMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password.",
-      });
+      return sendError(res, 401, "Invalid email or password.");
     }
 
     // --- Generate JWT ---
     const token = generateToken(user);
 
-    return res.status(200).json({
-      success: true,
-      data: {
+    return sendSuccess(
+      res,
+      200,
+      {
         token,
         user: {
           id: user.id,
@@ -156,8 +141,8 @@ const login = async (req, res, next) => {
           created_at: user.created_at,
         },
       },
-      message: "Login successful.",
-    });
+      "Login successful."
+    );
   } catch (error) {
     next(error);
   }
@@ -173,10 +158,7 @@ const forgotPassword = async (req, res, next) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Email is required.",
-      });
+      return sendError(res, 400, "Email is required.");
     }
 
     // --- Check if user exists ---
@@ -187,12 +169,12 @@ const forgotPassword = async (req, res, next) => {
 
     // Always return success to avoid user enumeration attacks
     if (result.rows.length === 0) {
-      return res.status(200).json({
-        success: true,
-        data: {},
-        message:
-          "If an account with that email exists, a reset link has been sent.",
-      });
+      return sendSuccess(
+        res,
+        200,
+        {},
+        "If an account with that email exists, a reset link has been sent."
+      );
     }
 
     const user = result.rows[0];
@@ -219,12 +201,12 @@ const forgotPassword = async (req, res, next) => {
     // --- Send reset email ---
     await sendPasswordResetEmail(user.email, resetToken, user.name);
 
-    return res.status(200).json({
-      success: true,
-      data: {},
-      message:
-        "If an account with that email exists, a reset link has been sent.",
-    });
+    return sendSuccess(
+      res,
+      200,
+      {},
+      "If an account with that email exists, a reset link has been sent."
+    );
   } catch (error) {
     next(error);
   }
@@ -240,20 +222,17 @@ const resetPassword = async (req, res, next) => {
     const { token, newPassword } = req.body;
 
     if (!token || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: "Token and new password are required.",
-      });
+      return sendError(res, 400, "Token and new password are required.");
     }
 
     // --- Validate new password strength ---
     const { isValid, errors } = validatePassword(newPassword);
     if (!isValid) {
-      return res.status(400).json({
-        success: false,
-        message: "Password does not meet requirements.",
-        errors,
-      });
+      return sendError(
+        res,
+        400,
+        `Password does not meet requirements: ${errors.join(" ")}`
+      );
     }
 
     // --- Find the reset token ---
@@ -266,10 +245,7 @@ const resetPassword = async (req, res, next) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired reset token.",
-      });
+      return sendError(res, 400, "Invalid or expired reset token.");
     }
 
     const resetRecord = result.rows[0];
@@ -280,10 +256,11 @@ const resetPassword = async (req, res, next) => {
       await pool.query("DELETE FROM password_resets WHERE id = $1", [
         resetRecord.id,
       ]);
-      return res.status(400).json({
-        success: false,
-        message: "Reset token has expired. Please request a new one.",
-      });
+      return sendError(
+        res,
+        400,
+        "Reset token has expired. Please request a new one."
+      );
     }
 
     // --- Hash new password ---
@@ -300,11 +277,12 @@ const resetPassword = async (req, res, next) => {
       resetRecord.id,
     ]);
 
-    return res.status(200).json({
-      success: true,
-      data: {},
-      message: "Password reset successfully. You can now log in.",
-    });
+    return sendSuccess(
+      res,
+      200,
+      {},
+      "Password reset successfully. You can now log in."
+    );
   } catch (error) {
     next(error);
   }
@@ -323,19 +301,10 @@ const getMe = async (req, res, next) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
+      return sendError(res, 404, "User not found.");
     }
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        user: result.rows[0],
-      },
-      message: "User profile fetched successfully.",
-    });
+    return sendSuccess(res, 200, { user: result.rows[0] }, "User fetched.");
   } catch (error) {
     next(error);
   }
