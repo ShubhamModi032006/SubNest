@@ -4,6 +4,8 @@ const cors = require("cors");
 const { createTables } = require("./models/schema");
 const authRoutes = require("./routes/authRoutes");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
+const { requestLogger } = require("./middlewares/requestLogger");
+const { sendSuccess } = require("./utils/apiResponse");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,18 +20,7 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE"],
   })
 );
-
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    console.log(
-      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${duration}ms`
-    );
-  });
-  next();
-});
-
+app.use(requestLogger);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -37,13 +28,12 @@ app.use(express.urlencoded({ extended: true }));
 // Health Check
 // ─────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    data: {
-      timestamp: new Date().toISOString(),
-    },
-    message: "SubNest API is running",
-  });
+  return sendSuccess(
+    res,
+    200,
+    { timestamp: new Date().toISOString() },
+    "SubNest API is running"
+  );
 });
 
 // ─────────────────────────────────────────────
