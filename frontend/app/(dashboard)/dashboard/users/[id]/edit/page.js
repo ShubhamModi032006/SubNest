@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,12 +16,22 @@ export default function EditUserPage() {
   const id = params.id;
   
   const { users, fetchUsers, updateUser } = useDataStore();
+  const user = useAuthStore((state) => state.user);
   
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     name: "", email: "", role: "user", phone: "", address: ""
   });
+  const isAdmin = user?.role?.toLowerCase() === "admin";
+
+  if (!isAdmin) {
+    return (
+      <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        Users are read-only for internal role. Admin access is required.
+      </div>
+    );
+  }
 
   useEffect(() => {
     fetchUsers().then(() => setLoading(false));

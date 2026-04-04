@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, Edit, Mail, Phone, MapPin, Shield } from "lucide-react";
 import Link from "next/link";
@@ -13,7 +14,9 @@ export default function UserDetailPage() {
   const id = params.id;
   
   const { users, fetchUsers, contacts, fetchContacts } = useDataStore();
+  const authUser = useAuthStore((state) => state.user);
   const [loading, setLoading] = useState(true);
+  const isAdmin = authUser?.role?.toLowerCase() === "admin";
 
   useEffect(() => {
     Promise.all([fetchUsers(), fetchContacts()]).then(() => setLoading(false));
@@ -38,11 +41,17 @@ export default function UserDetailPage() {
             <p className="text-sm text-muted-foreground">User ID: {user.id}</p>
           </div>
         </div>
-        <Link href={`/dashboard/users/${id}/edit`}>
-          <Button variant="outline" className="gap-2">
-            <Edit className="h-4 w-4" /> Edit Profile
-          </Button>
-        </Link>
+        {isAdmin ? (
+          <Link href={`/dashboard/users/${id}/edit`}>
+            <Button variant="outline" className="gap-2">
+              <Edit className="h-4 w-4" /> Edit Profile
+            </Button>
+          </Link>
+        ) : (
+          <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-[10px] font-semibold uppercase text-amber-700">
+            Restricted
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

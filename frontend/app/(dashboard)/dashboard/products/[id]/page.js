@@ -3,16 +3,20 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, Edit, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { canEditProduct } from "@/lib/rbac/permissions";
 
 export default function ProductDetailPage() {
   const params = useParams();
   const id = params.id;
   
   const { products, fetchProducts } = useDataStore();
+  const user = useAuthStore((state) => state.user);
   const [loading, setLoading] = useState(true);
+  const canEdit = canEditProduct(user?.role);
 
   useEffect(() => {
     fetchProducts().then(() => setLoading(false));
@@ -38,11 +42,17 @@ export default function ProductDetailPage() {
             <p className="text-sm text-muted-foreground font-mono">ID: {product.id} • {product.status}</p>
           </div>
         </div>
-        <Link href={`/dashboard/products/${id}/edit`}>
-          <Button variant="outline" className="gap-2">
-            <Edit className="h-4 w-4" /> Manage Item
-          </Button>
-        </Link>
+        {canEdit ? (
+          <Link href={`/dashboard/products/${id}/edit`}>
+            <Button variant="outline" className="gap-2">
+              <Edit className="h-4 w-4" /> Manage Item
+            </Button>
+          </Link>
+        ) : (
+          <span className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-100 px-3 py-2 text-xs font-semibold uppercase text-amber-700">
+            Restricted
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

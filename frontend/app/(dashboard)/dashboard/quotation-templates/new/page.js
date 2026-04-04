@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
 
 export default function NewQuotationTemplatePage() {
   const router = useRouter();
+  const role = useAuthStore((state) => state.user?.role);
   const products = useDataStore((state) => state.products);
   const plans = useDataStore((state) => state.plans);
   const fetchPlans = useDataStore((state) => state.fetchPlans);
@@ -16,6 +18,11 @@ export default function NewQuotationTemplatePage() {
   const [description, setDescription] = useState("");
   const [recurringPlanId, setRecurringPlanId] = useState("");
   const [lines, setLines] = useState([]);
+  const isAdmin = String(role || "").toLowerCase() === "admin";
+
+  if (!isAdmin) {
+    return <p className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">Quotation templates are restricted to admins.</p>;
+  }
 
   const productOptions = useMemo(
     () => products.map((p) => ({ value: p.id, label: `${p.name} ($${Number(p.price || 0).toFixed(2)})`, price: Number(p.price || 0) })),
