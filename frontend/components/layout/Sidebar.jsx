@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { cn } from "@/lib/utils";
 import { 
@@ -18,6 +19,7 @@ import {
   FileText,
   ReceiptText,
   ShieldCheck,
+  ChevronDown,
 } from "lucide-react";
 import {
   isAdmin,
@@ -36,7 +38,7 @@ const menuItems = [
   { name: "Quotation Templates", href: "/dashboard/quotation-templates", icon: FileText, roles: ["admin"] },
   { name: "Users", href: "/dashboard/users", icon: Users, roles: ["admin"] },
   { name: "Reporting", href: "/dashboard/reports", icon: BarChart3, roles: ["admin"] },
-  { name: "My Profile", href: "/profile", icon: UserCircle, roles: ["admin"] },
+  { name: "My Profile", href: "/dashboard/profile", icon: UserCircle, roles: ["admin"] },
 ];
 
 const configurationItems = [
@@ -52,6 +54,13 @@ export function Sidebar({ isOpen }) {
   const admin = isAdmin(userRole);
   const internal = isInternal(userRole);
   const allowConfiguration = canAccessConfiguration(userRole);
+  const [configurationOpen, setConfigurationOpen] = useState(pathname.startsWith("/dashboard/configuration"));
+
+  useEffect(() => {
+    if (pathname.startsWith("/dashboard/configuration")) {
+      setConfigurationOpen(true);
+    }
+  }, [pathname]);
 
   const filteredItems = menuItems.filter(
     (item) => !item.roles || item.roles.includes(userRole)
@@ -100,34 +109,48 @@ export function Sidebar({ isOpen }) {
 
         {allowConfiguration ? (
           <div className="mt-6 rounded-xl border border-border/40 bg-muted/10 p-2">
-            <div className="mb-1 flex items-center gap-2 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <Settings className="h-4 w-4" />
-              Configuration
-            </div>
-            <div className="space-y-1">
-              {configurationItems.map((item) => {
-                const isActive = pathname.startsWith(item.href);
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "group flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
-                      isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                    )}
-                  >
-                    <Icon className={cn(
-                      "mr-3 h-4 w-4 shrink-0 transition-colors duration-200",
-                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-                    )} />
-                    {item.name}
-                  </Link>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={() => setConfigurationOpen((open) => !open)}
+              className={cn(
+                "flex w-full items-center justify-between rounded-lg px-2 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors duration-200 hover:text-foreground",
+                configurationOpen ? "text-foreground" : "text-muted-foreground"
+              )}
+              aria-expanded={configurationOpen}
+            >
+              <span className="flex items-center gap-2">
+                <Settings className="h-4 w-4" />
+                Configuration
+              </span>
+              <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", configurationOpen ? "rotate-180" : "rotate-0")} />
+            </button>
+
+            {configurationOpen ? (
+              <div className="mt-1 space-y-1">
+                {configurationItems.map((item) => {
+                  const isActive = pathname.startsWith(item.href);
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={cn(
+                        "group flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                        isActive
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                      )}
+                    >
+                      <Icon className={cn(
+                        "mr-3 h-4 w-4 shrink-0 transition-colors duration-200",
+                        isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                      )} />
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

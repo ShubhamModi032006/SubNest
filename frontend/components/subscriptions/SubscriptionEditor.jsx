@@ -203,7 +203,7 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
 
   const saveDraft = async () => {
     const saved = await persist("Draft");
-    if (saved && mode === "create") {
+    if (saved?.id && mode === "create") {
       router.push(`/dashboard/subscriptions/${saved.id}`);
     }
   };
@@ -216,7 +216,9 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
       currentId = created.id;
     }
     const updated = await runSubscriptionAction(currentId, "send");
-    router.push(`/dashboard/subscriptions/${updated.id}`);
+    if (updated?.id) {
+      router.push(`/dashboard/subscriptions/${updated.id}`);
+    }
   };
 
   const confirmSubscription = async () => {

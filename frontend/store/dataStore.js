@@ -109,6 +109,7 @@ const toProductPayload = (productData) => ({
 
 const normalizeSubscription = (subscription) => ({
   ...subscription,
+  id: subscription?.id ?? subscription?._id ?? subscription?.subscriptionId ?? subscription?.subscription_id ?? '',
   subscriptionNumber: subscription?.subscriptionNumber ?? subscription?.subscription_number,
   customerId: subscription?.customerId ?? subscription?.customer_id ?? subscription?.customer?.id ?? '',
   customerType: subscription?.customerType ?? subscription?.customer_type ?? subscription?.customer?.type ?? 'user',

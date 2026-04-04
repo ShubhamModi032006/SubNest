@@ -99,7 +99,14 @@ export default function SubscriptionsPage() {
                 <tr><td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">No subscriptions found.</td></tr>
               ) : (
                 paginated.map((item) => (
-                  <tr key={item.id} className="cursor-pointer hover:bg-muted/10" onClick={() => (window.location.href = `/dashboard/subscriptions/${item.id}`)}>
+                  <tr
+                    key={item.id || item.subscriptionNumber}
+                    className={item.id ? "cursor-pointer hover:bg-muted/10" : "cursor-not-allowed opacity-70"}
+                    onClick={() => {
+                      if (!item.id) return;
+                      window.location.href = `/dashboard/subscriptions/${item.id}`;
+                    }}
+                  >
                     <td className="px-6 py-4 font-medium text-primary">{item.subscriptionNumber}</td>
                     <td className="px-6 py-4">{item.customerLabel || "-"}</td>
                     <td className="px-6 py-4">{item.recurringPlanLabel || "-"}</td>
