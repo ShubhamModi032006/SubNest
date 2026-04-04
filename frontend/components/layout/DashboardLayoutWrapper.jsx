@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { Sidebar } from "./Sidebar";
 import { Navbar } from "./Navbar";
+import { canAccessDashboard } from "@/lib/rbac/permissions";
 
 export function DashboardLayoutWrapper({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -30,10 +31,10 @@ export function DashboardLayoutWrapper({ children }) {
         const currentUser = useAuthStore.getState().user;
         const currentRole = (currentUser?.role || "user").toLowerCase();
         
-        // 3. Portal or User roles redirect away from dashboard
-        if (currentRole === "portal" || currentRole === "user") {
-           if (isMounted) router.replace("/portal"); 
-           return; // Stop here, don't show dashboard
+        // 3. Non-dashboard roles redirect away from dashboard
+        if (!canAccessDashboard(currentRole)) {
+          if (isMounted) router.replace("/portal");
+          return; // Stop here, don't show dashboard
         }
         
         if (isMounted) setIsReady(true);

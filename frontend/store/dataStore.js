@@ -1,4 +1,121 @@
 import { create } from 'zustand';
+import { fetchApi } from '@/lib/api';
+
+const getPayload = (response) => response?.data ?? response;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const toUiSubscriptionStatus = (status) => {
+  const normalized = String(status || '').toLowerCase();
+  const map = {
+    draft: 'Draft',
+    quotation: 'Quotation',
+    confirmed: 'Confirmed',
+    active: 'Active',
+    closed: 'Closed',
+  };
+  return map[normalized] || status || 'Draft';
+};
+
+const normalizeProduct = (product) => ({
+  ...product,
+  salesPrice: Number(product?.salesPrice ?? product?.sales_price ?? 0),
+  costPrice: Number(product?.costPrice ?? product?.cost_price ?? 0),
+  tax: product?.tax ?? product?.tax_id ?? '',
+  status: product?.status || (product?.is_archived ? 'archived' : 'active'),
+  recurringPrices: (product?.recurringPrices || product?.recurring_prices || []).map((row) => ({
+    ...row,
+    planId: row?.planId ?? row?.plan_id ?? '',
+    minQuantity: row?.minQuantity ?? row?.min_quantity ?? 1,
+    startDate: row?.startDate ?? row?.start_date ?? '',
+    endDate: row?.endDate ?? row?.end_date ?? '',
+  })),
+  variants: (product?.variants || []).map((variant) => ({
+    ...variant,
+    extraPrice: Number(variant?.extraPrice ?? variant?.extra_price ?? 0),
+  })),
+});
+
+const toProductPayload = (productData) => ({
+  name: productData?.name,
+  type: String(productData?.type || '').toLowerCase(),
+  sales_price: Number(productData?.salesPrice ?? 0),
+  cost_price: Number(productData?.costPrice ?? 0),
+  tax_id: productData?.tax || null,
+  variants: (productData?.variants || []).map((variant) => ({
+    attribute: variant?.attribute,
+    value: variant?.value,
+    extra_price: Number(variant?.extraPrice ?? 0),
+  })),
+  recurring_prices: (productData?.recurringPrices || []).map((row) => ({
+    plan_id: row?.planId || null,
+    price: Number(row?.price ?? 0),
+    min_quantity: Number(row?.minQuantity ?? 1),
+    start_date: row?.startDate || new Date().toISOString().slice(0, 10),
+    end_date: row?.endDate || null,
+  })),
+});
+
+const normalizeSubscription = (subscription) => ({
+  ...subscription,
+  subscriptionNumber: subscription?.subscriptionNumber ?? subscription?.subscription_number,
+  customerId: subscription?.customerId ?? subscription?.customer_id ?? subscription?.customer?.id ?? '',
+  customerType: subscription?.customerType ?? subscription?.customer_type ?? subscription?.customer?.type ?? 'user',
+  customerLabel: subscription?.customerLabel ?? subscription?.customer?.name ?? '-',
+  recurringPlanId: subscription?.recurringPlanId ?? subscription?.plan?.id ?? '',
+  recurringPlanLabel: subscription?.recurringPlanLabel ?? subscription?.plan?.name ?? '',
+  startDate: subscription?.startDate ?? subscription?.start_date ?? '',
+  expirationDate: subscription?.expirationDate ?? subscription?.expiration_date ?? '',
+  paymentTerms: subscription?.paymentTerms ?? subscription?.payment_terms ?? '',
+  status: toUiSubscriptionStatus(subscription?.status),
+  orderLines: (subscription?.orderLines || subscription?.items || []).map((item) => ({
+    id: item?.id,
+    productId: item?.productId ?? item?.product_id,
+    productName: item?.productName ?? item?.product_name,
+    variantId: item?.variantId ?? item?.variant_id ?? '',
+    quantity: Number(item?.quantity ?? 1),
+    unitPrice: Number(item?.unitPrice ?? item?.unit_price ?? 0),
+    discountValue: Number(item?.discountValue ?? item?.discount ?? 0),
+    taxValue: Number(item?.taxValue ?? item?.tax ?? 0),
+    lineTotal: Number(item?.lineTotal ?? item?.amount ?? 0),
+  })),
+});
+
+const toSubscriptionPayload = (payload) => ({
+  customer_id: payload?.customerId,
+  customer_type: payload?.customerType,
+  plan_id: payload?.recurringPlanId,
+  quotation_template_id: payload?.quotationTemplate || null,
+  start_date: payload?.startDate,
+  expiration_date: payload?.expirationDate || null,
+  payment_terms: payload?.paymentTerms || null,
+  items: (payload?.orderLines || []).map((line) => ({
+    product_id: line?.productId,
+    variant_id: line?.variantId || null,
+    quantity: Number(line?.quantity ?? 1),
+  })),
+});
+
+const normalizeInvoice = (invoice) => ({
+  ...invoice,
+  invoiceNumber: invoice?.invoiceNumber ?? invoice?.invoice_number,
+  customerLabel: invoice?.customerLabel ?? invoice?.customer?.name ?? invoice?.customer ?? '-',
+  invoiceDate: invoice?.invoiceDate ?? invoice?.invoice_date ?? invoice?.date ?? '',
+  dueDate: invoice?.dueDate ?? invoice?.due_date ?? '',
+  grandTotal: Number(invoice?.grandTotal ?? invoice?.grand_total ?? invoice?.total_amount ?? 0),
+  discountTotal: Number(invoice?.discountTotal ?? invoice?.discount_total ?? 0),
+  taxTotal: Number(invoice?.taxTotal ?? invoice?.tax_total ?? 0),
+  subtotal: Number(invoice?.subtotal ?? 0),
+  linkedSubscriptionId: invoice?.linkedSubscriptionId ?? invoice?.subscription_id ?? '-',
+  lines: (invoice?.lines || invoice?.items || []).map((line) => ({
+    id: line?.id,
+    productName: line?.productName ?? line?.product_name ?? line?.description ?? '-',
+    quantity: Number(line?.quantity ?? 0),
+    unitPrice: Number(line?.unitPrice ?? line?.unit_price ?? 0),
+    discountAmount: Number(line?.discountAmount ?? line?.discount ?? 0),
+    taxAmount: Number(line?.taxAmount ?? line?.tax ?? 0),
+    total: Number(line?.total ?? 0),
+  })),
+});
 
 export const useDataStore = create((set, get) => ({
   users: [],
@@ -147,69 +264,80 @@ export const useDataStore = create((set, get) => ({
   },
 
   fetchProducts: async (force = false) => {
-    if (get().products.length > 0 && !force) return;
+    const cachedProducts = get().products;
+    const hasOnlyUuidIds = cachedProducts.every((product) => UUID_REGEX.test(String(product?.id || "")));
+    if (cachedProducts.length > 0 && !force && hasOnlyUuidIds) return;
     set({ loadingProducts: true, error: null });
     try {
-      const res = await fetch("/api/products");
-      if (!res.ok) throw new Error("Failed to fetch products");
-      const data = await res.json();
-      set({ products: data.products || [], loadingProducts: false });
+      const response = await fetchApi('/products', { method: 'GET' });
+      const data = getPayload(response);
+      set({ products: (data.products || []).map(normalizeProduct), loadingProducts: false });
     } catch (err) {
       set({ error: err.message, loadingProducts: false });
     }
   },
 
   fetchSubscriptions: async (force = false) => {
-    if (get().subscriptions.length > 0 && !force) return;
+    const cachedSubscriptions = get().subscriptions;
+    const hasOnlyUuidIds = cachedSubscriptions.every((item) => UUID_REGEX.test(String(item?.id || '')));
+    if (cachedSubscriptions.length > 0 && !force && hasOnlyUuidIds) return;
     set({ loadingSubscriptions: true, error: null });
     try {
-      const res = await fetch('/api/subscriptions');
-      if (!res.ok) throw new Error('Failed to fetch subscriptions');
-      const data = await res.json();
-      set({ subscriptions: data.subscriptions || [], loadingSubscriptions: false });
+      const response = await fetchApi('/subscriptions', { method: 'GET' });
+      const data = getPayload(response);
+      set({ subscriptions: (data.subscriptions || []).map(normalizeSubscription), loadingSubscriptions: false });
     } catch (err) {
       set({ error: err.message, loadingSubscriptions: false });
     }
   },
 
   createSubscription: async (payload) => {
-    const res = await fetch('/api/subscriptions', {
+    const response = await fetchApi('/subscriptions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(toSubscriptionPayload(payload)),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create subscription');
-    set((state) => ({ subscriptions: [data.subscription, ...state.subscriptions] }));
-    return data.subscription;
+    const data = getPayload(response);
+    const normalized = normalizeSubscription(data.subscription);
+    set((state) => ({ subscriptions: [normalized, ...state.subscriptions] }));
+    return normalized;
   },
 
   updateSubscription: async (id, payload) => {
-    const res = await fetch(`/api/subscriptions/${id}`, {
+    const response = await fetchApi(`/subscriptions/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(toSubscriptionPayload(payload)),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to update subscription');
+    const data = getPayload(response);
+    const normalized = normalizeSubscription(data.subscription);
     set((state) => ({
       subscriptions: state.subscriptions.map((item) =>
-        item.id === id ? data.subscription : item
+        item.id === id ? normalized : item
       ),
     }));
-    return data.subscription;
+    return normalized;
+  },
+
+  fetchSubscriptionById: async (id) => {
+    const response = await fetchApi(`/subscriptions/${id}`, { method: 'GET' });
+    const data = getPayload(response);
+    const normalized = normalizeSubscription(data.subscription);
+    set((state) => ({
+      subscriptions: state.subscriptions.some((item) => item.id === id)
+        ? state.subscriptions.map((item) => (item.id === id ? normalized : item))
+        : [normalized, ...state.subscriptions],
+    }));
+    return normalized;
   },
 
   runSubscriptionAction: async (id, action) => {
-    const res = await fetch(`/api/subscriptions/${id}/${action}`, { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || `Failed to ${action} subscription`);
+    await fetchApi(`/subscriptions/${id}/${action}`, { method: 'POST' });
+    const refreshed = await get().fetchSubscriptionById(id);
     set((state) => ({
       subscriptions: state.subscriptions.map((item) =>
-        item.id === id ? data.subscription : item
+        item.id === id ? refreshed : item
       ),
     }));
-    return data.subscription;
+    return refreshed;
   },
 
   setSubscriptionDraft: (patch) => {
@@ -248,7 +376,7 @@ export const useDataStore = create((set, get) => ({
 
   deleteProduct: async (id) => {
     try {
-      await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      await fetchApi(`/products/${id}`, { method: 'DELETE' });
       set(state => ({ products: state.products.filter(p => p.id !== id) }));
       return true;
     } catch (err) {
@@ -259,10 +387,11 @@ export const useDataStore = create((set, get) => ({
 
   archiveProduct: async (id) => {
     try {
-      const res = await fetch(`/api/products/${id}/archive`, { method: 'PATCH' });
-      const data = await res.json();
-      set(state => ({ products: state.products.map(p => p.id === id ? data.product : p) }));
-      return data.product;
+      const response = await fetchApi(`/products/${id}/archive`, { method: 'PATCH' });
+      const data = getPayload(response);
+      const normalized = normalizeProduct(data.product);
+      set(state => ({ products: state.products.map(p => p.id === id ? normalized : p) }));
+      return normalized;
     } catch (err) {
       console.error(err);
       return false;
@@ -271,14 +400,14 @@ export const useDataStore = create((set, get) => ({
   
   createProduct: async (productData) => {
     try {
-      const res = await fetch('/api/products', {
+      const response = await fetchApi('/products', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productData)
+        body: JSON.stringify(toProductPayload(productData))
       });
-      const data = await res.json();
-      set(state => ({ products: [...state.products, data.product] }));
-      return data.product;
+      const data = getPayload(response);
+      const normalized = normalizeProduct(data.product);
+      set(state => ({ products: [...state.products, normalized] }));
+      return normalized;
     } catch(err) {
       throw err;
     }
@@ -286,14 +415,14 @@ export const useDataStore = create((set, get) => ({
   
   updateProduct: async (id, productData) => {
     try {
-      const res = await fetch(`/api/products/${id}`, {
+      const response = await fetchApi(`/products/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productData)
+        body: JSON.stringify(toProductPayload(productData))
       });
-      const data = await res.json();
-      set(state => ({ products: state.products.map(p => p.id === id ? data.product : p) }));
-      return data.product;
+      const data = getPayload(response);
+      const normalized = normalizeProduct(data.product);
+      set(state => ({ products: state.products.map(p => p.id === id ? normalized : p) }));
+      return normalized;
     } catch(err) {
       throw err;
     }
@@ -494,50 +623,56 @@ export const useDataStore = create((set, get) => ({
   },
 
   fetchInvoices: async (force = false) => {
-    if (get().invoices.length > 0 && !force) return;
+    const cachedInvoices = get().invoices;
+    const hasOnlyUuidIds = cachedInvoices.every((item) => UUID_REGEX.test(String(item?.id || '')));
+    if (cachedInvoices.length > 0 && !force && hasOnlyUuidIds) return;
     set({ loadingInvoices: true, error: null });
     try {
-      const res = await fetch('/api/invoices');
-      if (!res.ok) throw new Error('Failed to fetch invoices');
-      const data = await res.json();
-      set({ invoices: data.invoices || [], loadingInvoices: false });
+      const response = await fetchApi('/invoices', { method: 'GET' });
+      const data = getPayload(response);
+      set({ invoices: (data.invoices || []).map(normalizeInvoice), loadingInvoices: false });
     } catch (err) {
       set({ error: err.message, loadingInvoices: false });
     }
   },
 
   fetchInvoiceById: async (id) => {
-    const res = await fetch(`/api/invoices/${id}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to fetch invoice');
+    const response = await fetchApi(`/invoices/${id}`, { method: 'GET' });
+    const data = getPayload(response);
+    const normalized = normalizeInvoice(data.invoice);
     set((state) => {
       const exists = state.invoices.some((inv) => inv.id === id);
       return {
         invoices: exists
-          ? state.invoices.map((inv) => (inv.id === id ? data.invoice : inv))
-          : [data.invoice, ...state.invoices],
+          ? state.invoices.map((inv) => (inv.id === id ? normalized : inv))
+          : [normalized, ...state.invoices],
       };
     });
-    return data.invoice;
+    return normalized;
   },
 
   runInvoiceAction: async (id, action) => {
-    const res = await fetch(`/api/invoices/${id}/${action}`, { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || `Failed to ${action} invoice`);
+    await fetchApi(`/invoices/${id}/${action}`, { method: 'POST' });
+    const refreshed = await get().fetchInvoiceById(id);
     set((state) => ({
-      invoices: state.invoices.map((item) => (item.id === id ? data.invoice : item)),
+      invoices: state.invoices.map((item) => (item.id === id ? refreshed : item)),
     }));
-    return data.invoice;
+    return refreshed;
   },
 
   createInvoiceFromSubscription: async (subscriptionId) => {
-    const res = await fetch(`/api/subscriptions/${subscriptionId}/create-invoice`, {
+    const response = await fetchApi(`/subscriptions/${subscriptionId}/create-invoice`, {
       method: 'POST',
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create invoice from subscription');
-    set((state) => ({ invoices: [data.invoice, ...state.invoices] }));
-    return data.invoice;
+    const data = getPayload(response);
+    const invoiceId = data.invoice_id || data.invoice?.id;
+    if (!invoiceId) throw new Error('Failed to create invoice from subscription');
+    const invoice = await get().fetchInvoiceById(invoiceId);
+    set((state) => ({
+      invoices: state.invoices.some((item) => item.id === invoice.id)
+        ? state.invoices.map((item) => (item.id === invoice.id ? invoice : item))
+        : [invoice, ...state.invoices],
+    }));
+    return invoice;
   },
 }));
