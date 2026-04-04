@@ -1,0 +1,334 @@
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const pool = require("../models/db");
+const { validatePassword } = require("../utils/passwordValidator");
+const { sendPasswordResetEmail } = require("../utils/emailService");
+
+const SALT_ROUNDS = 12;
+const RESET_TOKEN_EXPIRY_HOURS = 1;
+
+// ─────────────────────────────────────────────
+// Helper: Generate JWT
+// ─────────────────────────────────────────────
+const generateToken = (user) => {
+  return jwt.sign(
+    { id: user.id, email: user.email, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+  );
+};
+
+// ─────────────────────────────────────────────
+// @route   POST /api/auth/signup
+// @desc    Register a new user
+// @access  Public
+// ─────────────────────────────────────────────
+const signup = async (req, res, next) => {
+  try {
+    const { name, email, password } = req.body;
+
+    // --- Basic field validation ---
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email, and password are required.",
+      });
+    }
+
+    // --- Email format validation ---
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address.",
+      });
+    }
+
+    // --- Password strength validation ---
+    const { isValid, errors } = validatePassword(password);
+    if (!isValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Password does not meet requirements.",
+        errors,
+      });
+    }
+
+    // --- Check if email already exists ---
+    const existingUser = await pool.query(
+      "SELECT id FROM users WHERE email = $1",
+      [email.toLowerCase()]
+    );
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists.",
+      });
+    }
+
+    // --- Hash password ---
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+    // --- Insert user ---
+    const result = await pool.query(
+      `INSERT INTO users (name, email, password, role)
+       VALUES ($1, $2, $3, 'user')
+       RETURNING id, name, email, role, created_at`,
+      [name.trim(), email.toLowerCase(), hashedPassword]
+    );
+
+    const newUser = result.rows[0];
+    const token = generateToken(newUser);
+
+    return res.status(201).json({
+      success: true,
+      message: "Account created successfully.",
+      token,
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        created_at: newUser.created_at,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────
+// @route   POST /api/auth/login
+// @desc    Authenticate user and return JWT
+// @access  Public
+// ─────────────────────────────────────────────
+const login = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    // --- Basic field validation ---
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required.",
+      });
+    }
+
+    // --- Find user by email ---
+    const result = await pool.query(
+      "SELECT id, name, email, password, role, created_at FROM users WHERE email = $1",
+      [email.toLowerCase()]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password.",
+      });
+    }
+
+    const user = result.rows[0];
+
+    // --- Compare password ---
+    const isPasswordMatch = await bcrypt.compare(password, user.password);
+    if (!isPasswordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password.",
+      });
+    }
+
+    // --- Generate JWT ---
+    const token = generateToken(user);
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful.",
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        created_at: user.created_at,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────
+// @route   POST /api/auth/forgot-password
+// @desc    Send password reset email
+// @access  Public
+// ─────────────────────────────────────────────
+const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required.",
+      });
+    }
+
+    // --- Check if user exists ---
+    const result = await pool.query(
+      "SELECT id, name, email FROM users WHERE email = $1",
+      [email.toLowerCase()]
+    );
+
+    // Always return success to avoid user enumeration attacks
+    if (result.rows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message:
+          "If an account with that email exists, a reset link has been sent.",
+      });
+    }
+
+    const user = result.rows[0];
+
+    // --- Generate a secure reset token ---
+    const resetToken = crypto.randomBytes(64).toString("hex");
+
+    // --- Set expiry (1 hour from now) ---
+    const expiresAt = new Date(
+      Date.now() + RESET_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000
+    );
+
+    // --- Delete any existing reset tokens for this user ---
+    await pool.query("DELETE FROM password_resets WHERE user_id = $1", [
+      user.id,
+    ]);
+
+    // --- Store new token in password_resets table ---
+    await pool.query(
+      "INSERT INTO password_resets (user_id, token, expires_at) VALUES ($1, $2, $3)",
+      [user.id, resetToken, expiresAt]
+    );
+
+    // --- Send reset email ---
+    await sendPasswordResetEmail(user.email, resetToken, user.name);
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "If an account with that email exists, a reset link has been sent.",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────
+// @route   POST /api/auth/reset-password
+// @desc    Reset user password using token
+// @access  Public
+// ─────────────────────────────────────────────
+const resetPassword = async (req, res, next) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Token and new password are required.",
+      });
+    }
+
+    // --- Validate new password strength ---
+    const { isValid, errors } = validatePassword(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Password does not meet requirements.",
+        errors,
+      });
+    }
+
+    // --- Find the reset token ---
+    const result = await pool.query(
+      `SELECT pr.id, pr.user_id, pr.expires_at, u.email
+       FROM password_resets pr
+       JOIN users u ON pr.user_id = u.id
+       WHERE pr.token = $1`,
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired reset token.",
+      });
+    }
+
+    const resetRecord = result.rows[0];
+
+    // --- Check if token is expired ---
+    if (new Date() > new Date(resetRecord.expires_at)) {
+      // Cleanup expired token
+      await pool.query("DELETE FROM password_resets WHERE id = $1", [
+        resetRecord.id,
+      ]);
+      return res.status(400).json({
+        success: false,
+        message: "Reset token has expired. Please request a new one.",
+      });
+    }
+
+    // --- Hash new password ---
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+    // --- Update user's password ---
+    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
+      hashedPassword,
+      resetRecord.user_id,
+    ]);
+
+    // --- Delete the used reset token ---
+    await pool.query("DELETE FROM password_resets WHERE id = $1", [
+      resetRecord.id,
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully. You can now log in.",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────
+// @route   GET /api/auth/me
+// @desc    Get current logged-in user profile
+// @access  Private (requires token)
+// ─────────────────────────────────────────────
+const getMe = async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, name, email, role, created_at FROM users WHERE id = $1",
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: result.rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { signup, login, forgotPassword, resetPassword, getMe };
