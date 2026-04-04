@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { useDataStore } from "@/store/dataStore";
+import { useApprovalStore } from "@/store/approvalStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DynamicOrderTable } from "@/components/subscriptions/DynamicOrderTable";
 import { PricingSummaryCard } from "@/components/subscriptions/PricingSummaryCard";
 import { StatusStepper } from "@/components/subscriptions/StatusStepper";
+import { ApprovalRequestModal } from "@/components/approvals/ApprovalRequestModal";
+import { isInternal } from "@/lib/rbac/permissions";
 
 const initialForm = {
   customerId: "",
@@ -62,11 +65,13 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     resetSubscriptionDraft,
     subscriptionDraft,
   } = useDataStore();
+  const { createRequest, creatingRequest, notification, clearNotification } = useApprovalStore();
 
   const [activeTab, setActiveTab] = useState("order");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [orderLines, setOrderLines] = useState(initialSubscription?.orderLines || []);
+  const [approvalModal, setApprovalModal] = useState({ open: false, action: "" });
 
   const role = user?.role?.toLowerCase();
   const canManage = role === "admin" || role === "internal";
@@ -90,6 +95,7 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
   }, [users, contacts]);
 
   const selectedStatus = form.status || "Draft";
+  const restrictedFinancialImpact = isInternal(role) && ["Confirmed", "Active"].includes(selectedStatus);
 
   useEffect(() => {
     fetchUsers();
@@ -256,6 +262,24 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     setForm((prev) => ({ ...prev, status: updated.status }));
   };
 
+  const requestFinancialActionApproval = async (reason) => {
+    if (!initialSubscription?.id || !approvalModal.action) return;
+
+    await createRequest({
+      action_type: "CLOSE_SUBSCRIPTION",
+      entity_type: "subscription",
+      entity_id: initialSubscription.id,
+      reason,
+      payload: {
+        action: approvalModal.action,
+        subscription_number: initialSubscription.subscriptionNumber,
+        status: selectedStatus,
+      },
+    });
+
+    setApprovalModal({ open: false, action: "" });
+  };
+
   if (!canManage) {
     return <p className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">You do not have access to subscriptions.</p>;
   }
@@ -275,13 +299,50 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
 
         <StatusStepper status={selectedStatus} />
 
+        {notification ? (
+          <div className="rounded-lg bg-emerald-500/10 px-4 py-2 text-sm text-emerald-700">
+            <div className="flex items-center justify-between gap-3">
+              <span>{notification.message}</span>
+              <button type="button" onClick={clearNotification} className="text-xs font-semibold uppercase">Dismiss</button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           <Button onClick={saveDraft} disabled={saving || !canManage}>Save (Draft)</Button>
           <Button variant="secondary" onClick={sendQuotation} disabled={saving || !canSend(selectedStatus)}>Send (Quotation)</Button>
           <Button variant="secondary" onClick={confirmSubscription} disabled={saving || !initialSubscription?.id || !canConfirm(selectedStatus)}>Confirm</Button>
           <Button variant="outline" onClick={createInvoice} disabled={saving || !initialSubscription?.id}>Create Invoice</Button>
-          <Button variant="outline" onClick={cancelSubscription} disabled={saving || !initialSubscription?.id || selectedStatus === "Closed"}>Cancel</Button>
-          <Button variant="outline" onClick={closeSubscription} disabled={saving || !initialSubscription?.id || !canClose(selectedStatus)}>Close</Button>
+          <Button
+            variant="outline"
+            onClick={cancelSubscription}
+            disabled={saving || !initialSubscription?.id || selectedStatus === "Closed" || restrictedFinancialImpact}
+            title={restrictedFinancialImpact ? "Requires admin approval" : "Cancel subscription"}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="outline"
+            onClick={closeSubscription}
+            disabled={saving || !initialSubscription?.id || !canClose(selectedStatus) || restrictedFinancialImpact}
+            title={restrictedFinancialImpact ? "Requires admin approval" : "Close subscription"}
+          >
+            Close
+          </Button>
+          {restrictedFinancialImpact ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setApprovalModal({ open: true, action: "close_or_cancel" })}
+                disabled={!initialSubscription?.id}
+              >
+                Request Approval
+              </Button>
+              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+                Restricted
+              </span>
+            </>
+          ) : null}
           <Button variant="outline" onClick={renewSubscription} disabled={saving || !initialSubscription?.id || !canRenew(selectedStatus)}>Renew</Button>
           <Button variant="outline" onClick={upsellSubscription} disabled={saving || !initialSubscription?.id || !canUpsell(selectedStatus)}>Upsell</Button>
         </div>
@@ -387,7 +448,7 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
                     value={form.notes || ""}
                     onChange={(e) => updateForm("notes", e.target.value)}
                     disabled={!canManage}
-                    className="min-h-[120px] w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
+                    className="min-h-30 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
                   />
                 </div>
               </div>
@@ -422,6 +483,15 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
       {statuses.includes(selectedStatus) ? null : (
         <p className="text-sm text-muted-foreground">Unknown status: {selectedStatus}</p>
       )}
+
+      <ApprovalRequestModal
+        open={approvalModal.open}
+        title="Request force close/cancel approval"
+        description="Closing or cancelling a confirmed/active subscription requires admin approval."
+        loading={creatingRequest}
+        onClose={() => setApprovalModal({ open: false, action: "" })}
+        onSubmit={requestFinancialActionApproval}
+      />
     </div>
   );
 }

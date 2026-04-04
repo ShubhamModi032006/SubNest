@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChevronLeft, Save, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { canCreateUser } from "@/lib/rbac/permissions";
 
 export default function CreateUserPage() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function CreateUserPage() {
     name: "", email: "", password: "", role: "user", phone: "", address: ""
   });
 
-  const isAdmin = authUser?.role === "admin";
+  const isAdmin = canCreateUser(authUser?.role);
   if (!isAdmin) {
     return <div className="p-8 text-center text-destructive">Unauthorized. Only Admins can create users.</div>;
   }

@@ -300,6 +300,22 @@ const CREATE_INVOICE_ITEMS_TABLE = `
   );
 `;
 
+const CREATE_APPROVALS_TABLE = `
+  CREATE TABLE IF NOT EXISTS approvals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    action_type VARCHAR(50) NOT NULL CHECK (action_type IN ('DELETE_PRODUCT', 'CANCEL_INVOICE', 'CLOSE_SUBSCRIPTION', 'MODIFY_PRICING')),
+    entity_type VARCHAR(50) NOT NULL CHECK (entity_type IN ('subscription', 'invoice', 'product', 'plan', 'tax', 'discount', 'template')),
+    entity_id UUID NOT NULL,
+    reason TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMP WITH TIME ZONE
+  );
+`;
+
 const CREATE_PRODUCTS_NAME_INDEX = `
   CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 `;
@@ -354,6 +370,18 @@ const CREATE_INVOICES_SUBSCRIPTION_ID_INDEX = `
 
 const CREATE_INVOICE_ITEMS_INVOICE_ID_INDEX = `
   CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
+`;
+
+const CREATE_APPROVALS_STATUS_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+`;
+
+const CREATE_APPROVALS_USER_ID_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_approvals_user_id ON approvals(user_id);
+`;
+
+const CREATE_APPROVALS_ENTITY_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_approvals_entity ON approvals(entity_type, entity_id);
 `;
 
 const CREATE_USERS_EMAIL_INDEX = `
@@ -467,6 +495,9 @@ const run = async () => {
     await appClient.query(CREATE_INVOICE_ITEMS_TABLE);
     console.log("✅ Table: invoice_items — ready");
 
+    await appClient.query(CREATE_APPROVALS_TABLE);
+    console.log("✅ Table: approvals — ready");
+
     await appClient.query(CREATE_DISCOUNTS_TABLE);
     console.log("✅ Table: discounts — ready");
 
@@ -487,6 +518,9 @@ const run = async () => {
     await appClient.query(CREATE_INVOICES_STATUS_INDEX);
     await appClient.query(CREATE_INVOICES_SUBSCRIPTION_ID_INDEX);
     await appClient.query(CREATE_INVOICE_ITEMS_INVOICE_ID_INDEX);
+    await appClient.query(CREATE_APPROVALS_STATUS_INDEX);
+    await appClient.query(CREATE_APPROVALS_USER_ID_INDEX);
+    await appClient.query(CREATE_APPROVALS_ENTITY_INDEX);
     await appClient.query(CREATE_TAXES_NAME_INDEX);
     await appClient.query(CREATE_PLANS_NAME_INDEX);
     await appClient.query(CREATE_DISCOUNTS_NAME_INDEX);

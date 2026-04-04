@@ -12,6 +12,7 @@ const discountRoutes = require("./routes/discountRoutes");
 const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const quotationTemplateRoutes = require("./routes/quotationTemplateRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
+const approvalRoutes = require("./routes/approvalRoutes");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
 const { requestLogger } = require("./middlewares/requestLogger");
 const { sendSuccess } = require("./utils/apiResponse");
@@ -58,6 +59,7 @@ app.use("/api/discounts", discountRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/quotation-templates", quotationTemplateRoutes);
 app.use("/api/invoices", invoiceRoutes);
+app.use("/api/approvals", approvalRoutes);
 
 // ─────────────────────────────────────────────
 // Error Handling (must be last)

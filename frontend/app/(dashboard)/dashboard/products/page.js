@@ -4,22 +4,39 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useDataStore } from "@/store/dataStore";
 import { useAuthStore } from "@/store/authStore";
+import { useApprovalStore } from "@/store/approvalStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Plus, Edit, Trash2, Eye, Box, ArchiveRestore } from "lucide-react";
+import { ApprovalRequestModal } from "@/components/approvals/ApprovalRequestModal";
+import {
+  canArchiveProduct,
+  canCreateProduct,
+  canDeleteProduct,
+  canEditProduct,
+  isInternal,
+} from "@/lib/rbac/permissions";
 
 export default function ProductsPage() {
   const { products, fetchProducts, loadingProducts, deleteProduct, archiveProduct } = useDataStore();
   const { user: authUser } = useAuthStore();
+  const { createRequest, creatingRequest, notification, clearNotification } = useApprovalStore();
   
   const [searchTerm, setSearchTerm] = useState("");
   const [deletingId, setDeletingId] = useState(null);
+  const [requestModal, setRequestModal] = useState({ open: false, productId: null, productName: "" });
 
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
 
-  const isAdmin = authUser?.role === "admin";
+  const role = authUser?.role;
+  const isAdmin = role === "admin";
+  const internal = isInternal(role);
+  const canCreate = canCreateProduct(role);
+  const canEdit = canEditProduct(role);
+  const canArchive = canArchiveProduct(role);
+  const canDelete = canDeleteProduct(role);
   
   const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -37,6 +54,21 @@ export default function ProductsPage() {
     }
   };
 
+  const submitDeleteApproval = async (reason) => {
+    if (!requestModal.productId) return;
+    await createRequest({
+      action_type: "DELETE_PRODUCT",
+      entity_type: "product",
+      entity_id: requestModal.productId,
+      reason,
+      payload: {
+        source: "products_page",
+        product_name: requestModal.productName,
+      },
+    });
+    setRequestModal({ open: false, productId: null, productName: "" });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -46,7 +78,7 @@ export default function ProductsPage() {
           </h1>
           <p className="mt-2 text-muted-foreground">Manage service plans, goods, variations, and recurring price rules.</p>
         </div>
-        {isAdmin && (
+        {canCreate && (
           <Link href="/dashboard/products/new">
             <Button className="w-full sm:w-auto shadow-md gap-2">
               <Plus className="h-4 w-4" /> Create Product
@@ -54,6 +86,15 @@ export default function ProductsPage() {
           </Link>
         )}
       </div>
+
+      {notification ? (
+        <div className="rounded-lg bg-emerald-500/10 px-4 py-2 text-sm text-emerald-700">
+          <div className="flex items-center justify-between gap-3">
+            <span>{notification.message}</span>
+            <button type="button" onClick={clearNotification} className="text-xs font-semibold uppercase">Dismiss</button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-border/50 bg-card/80 shadow-2xl backdrop-blur-xl overflow-hidden">
         <div className="p-4 sm:p-6 border-b border-border/50 flex flex-col sm:flex-row gap-4 items-center sm:justify-between bg-muted/5">
@@ -111,27 +152,60 @@ export default function ProductsPage() {
                         <Link href={`/dashboard/products/${p.id}`}>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary"><Eye className="h-4 w-4" /></Button>
                         </Link>
-                        {isAdmin && (
+                        {(canEdit || canArchive || canDelete) && (
                           <>
-                            <Link href={`/dashboard/products/${p.id}/edit`}>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-emerald-500"><Edit className="h-4 w-4" /></Button>
-                            </Link>
-                            <Button 
-                              variant="ghost" size="icon" title="Archive"
-                              onClick={() => handleArchive(p.id)} disabled={p.status === 'archived'}
-                              className="h-8 w-8 hover:text-amber-500 hover:bg-amber-500/10"
-                            >
-                              <ArchiveRestore className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" size="icon" title="Delete"
-                              onClick={() => handleDelete(p.id)} disabled={deletingId === p.id}
-                              className="h-8 w-8 hover:text-destructive hover:bg-destructive/10"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {canEdit ? (
+                              <Link href={`/dashboard/products/${p.id}/edit`}>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-emerald-500"><Edit className="h-4 w-4" /></Button>
+                              </Link>
+                            ) : null}
+                            {canArchive ? (
+                              <Button 
+                                variant="ghost" size="icon" title="Archive"
+                                onClick={() => handleArchive(p.id)} disabled={p.status === 'archived'}
+                                className="h-8 w-8 hover:text-amber-500 hover:bg-amber-500/10"
+                              >
+                                <ArchiveRestore className="h-4 w-4" />
+                              </Button>
+                            ) : null}
+                            {canDelete ? (
+                              <Button 
+                                variant="ghost" size="icon" title="Delete"
+                                onClick={() => handleDelete(p.id)} disabled={deletingId === p.id}
+                                className="h-8 w-8 hover:text-destructive hover:bg-destructive/10"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            ) : null}
                           </>
                         )}
+                        {internal && !canDelete ? (
+                          <>
+                            <span title="Requires admin approval">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled
+                                className="h-8 w-8"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8"
+                              onClick={() =>
+                                setRequestModal({ open: true, productId: p.id, productName: p.name })
+                              }
+                            >
+                              Request Approval
+                            </Button>
+                            <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+                              Restricted
+                            </span>
+                          </>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -147,6 +221,15 @@ export default function ProductsPage() {
           </table>
         </div>
       </div>
+
+      <ApprovalRequestModal
+        open={requestModal.open}
+        title="Request admin approval"
+        description="Deleting products is restricted for internal users. Add a reason to submit this request."
+        loading={creatingRequest}
+        onClose={() => setRequestModal({ open: false, productId: null, productName: "" })}
+        onSubmit={submitDeleteApproval}
+      />
     </div>
   );
 }

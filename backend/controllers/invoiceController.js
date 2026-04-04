@@ -1,5 +1,6 @@
 const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
+const { createApprovalRequest } = require("../utils/approvalService");
 
 const INVOICE_STATUSES = ["draft", "confirmed", "paid", "cancelled"];
 
@@ -306,6 +307,36 @@ const sendInvoice = async (req, res, next) => {
 
 const cancelInvoice = async (req, res, next) => {
   try {
+    const invoiceResult = await pool.query("SELECT id, status FROM invoices WHERE id = $1", [req.params.id]);
+    if (invoiceResult.rows.length === 0) {
+      return sendError(res, 404, "Invoice not found.");
+    }
+
+    const currentStatus = invoiceResult.rows[0].status;
+    const isInternal = req.user.role === "internal";
+
+    if (isInternal && currentStatus === "confirmed") {
+      const reason = normalizeText(req.body?.reason) || "Requested cancel for confirmed invoice.";
+      const { approval } = await createApprovalRequest({
+        userId: req.user.id,
+        actionType: "CANCEL_INVOICE",
+        entityType: "invoice",
+        entityId: req.params.id,
+        reason,
+      });
+
+      console.log(
+        `[AUDIT] approval_requested requester=${req.user.id} action=CANCEL_INVOICE entity=invoice:${req.params.id} approval=${approval.id}`
+      );
+
+      return sendSuccess(
+        res,
+        202,
+        { approval },
+        "Approval request created. Admin approval required to cancel confirmed invoice."
+      );
+    }
+
     await updateStatus(req.params.id, "cancelled", ["draft", "confirmed"], "cancelled_at");
     return sendSuccess(res, 200, {}, "Invoice cancelled successfully.");
   } catch (error) {

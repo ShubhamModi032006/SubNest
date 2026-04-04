@@ -6,28 +6,32 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SubscriptionEditor } from "@/components/subscriptions/SubscriptionEditor";
+import { useDataStore } from "@/store/dataStore";
 
 export default function SubscriptionDetailsPage() {
   const params = useParams();
   const id = params.id;
+  const fetchSubscriptionById = useDataStore((state) => state.fetchSubscriptionById);
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      const res = await fetch(`/api/subscriptions/${id}`);
-      const data = await res.json();
-      if (mounted) {
-        setSubscription(data.subscription || null);
-        setLoading(false);
+      try {
+        const data = await fetchSubscriptionById(id);
+        if (mounted) setSubscription(data || null);
+      } catch (error) {
+        if (mounted) setSubscription(null);
+      } finally {
+        if (mounted) setLoading(false);
       }
     };
     load();
     return () => {
       mounted = false;
     };
-  }, [id]);
+  }, [id, fetchSubscriptionById]);
 
   if (loading) {
     return <p className="text-muted-foreground">Loading subscription...</p>;

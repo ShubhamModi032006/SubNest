@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
+import { canCreateInvoice } from "@/lib/rbac/permissions";
 
 const statusStyle = {
   draft: "bg-slate-200 text-slate-700",
@@ -12,7 +16,7 @@ const statusStyle = {
 };
 
 export default function InvoicesPage() {
-  const role = useDataStore((state) => state.role);
+  const role = useAuthStore((state) => state.user?.role);
   const invoices = useDataStore((state) => state.invoices);
   const loadingInvoices = useDataStore((state) => state.loadingInvoices);
   const fetchInvoices = useDataStore((state) => state.fetchInvoices);
@@ -29,6 +33,7 @@ export default function InvoicesPage() {
   }, [invoices, statusFilter]);
 
   const canManage = role === "admin" || role === "internal";
+  const allowCreateInvoice = canCreateInvoice(role);
 
   return (
     <section className="space-y-5">
@@ -37,13 +42,22 @@ export default function InvoicesPage() {
           <h1 className="text-2xl font-semibold">Invoices</h1>
           <p className="text-sm text-muted-foreground">Track invoice statuses and lifecycle actions linked to subscriptions.</p>
         </div>
-        <select className="rounded-lg border border-border px-3 py-2 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="all">All</option>
-          <option value="draft">Draft</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="sent">Sent</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+        <div className="flex items-center gap-2">
+          {allowCreateInvoice ? (
+            <Link href="/dashboard/invoices/new">
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> Create Invoice
+              </Button>
+            </Link>
+          ) : null}
+          <select className="rounded-lg border border-border px-3 py-2 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">All</option>
+            <option value="draft">Draft</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="sent">Sent</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border/50">

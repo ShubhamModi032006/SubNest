@@ -3,15 +3,18 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChevronLeft, Save, Loader2, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { canCreateProduct } from "@/lib/rbac/permissions";
 
 export default function CreateProductPage() {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
   const { createProduct, plans, taxes, fetchPlans, fetchTaxes } = useDataStore();
   
   const [saving, setSaving] = useState(false);
@@ -24,6 +27,15 @@ export default function CreateProductPage() {
 
   const [recurringPrices, setRecurringPrices] = useState([]);
   const [variants, setVariants] = useState([]);
+  const canCreate = canCreateProduct(user?.role);
+
+  if (!canCreate) {
+    return (
+      <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        You do not have access to create products.
+      </div>
+    );
+  }
 
   useEffect(() => {
     fetchPlans();
@@ -111,7 +123,7 @@ export default function CreateProductPage() {
         <form onSubmit={handleSubmit} className="p-6 sm:p-8">
           {error && <div className="mb-6 p-4 text-sm font-medium text-destructive bg-destructive/10 border border-destructive/20 rounded-xl">{error}</div>}
           
-          <div className="relative min-h-[300px]">
+          <div className="relative min-h-75">
             {/* Basic Info Tab */}
             <div className={cn("transition-all duration-300", activeTab === "basic" ? "opacity-100 relative z-10" : "opacity-0 absolute inset-0 pointer-events-none")}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

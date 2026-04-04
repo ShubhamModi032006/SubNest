@@ -4,6 +4,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const { name, email, password, role } = body;
+    const allowedRoles = ['user', 'internal'];
 
     // Simulate network delay
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -13,7 +14,9 @@ export async function POST(request) {
       return NextResponse.json({ message: 'All fields are required' }, { status: 400 });
     }
     
-    const newUser = { id: Date.now().toString(), name, email, role: role || 'user' };
+    const normalizedRole = String(role || 'user').toLowerCase();
+    const assignedRole = allowedRoles.includes(normalizedRole) ? normalizedRole : 'user';
+    const newUser = { id: Date.now().toString(), name, email, role: assignedRole };
     const fakeJwt = Buffer.from(JSON.stringify(newUser)).toString('base64');
     
     // Simulate successful signup

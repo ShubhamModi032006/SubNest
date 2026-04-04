@@ -8,6 +8,7 @@ const { sendSuccess, sendError } = require("../utils/apiResponse");
 
 const SALT_ROUNDS = 12;
 const RESET_TOKEN_EXPIRY_HOURS = 1;
+const PUBLIC_SIGNUP_ROLES = ["user", "internal"];
 
 // ─────────────────────────────────────────────
 // Helper: Generate JWT
@@ -27,7 +28,7 @@ const generateToken = (user) => {
 // ─────────────────────────────────────────────
 const signup = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role } = req.body;
 
     // --- Basic field validation ---
     if (!name || !email || !password) {
@@ -62,8 +63,11 @@ const signup = async (req, res, next) => {
     // --- Hash password ---
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // --- Public signup always creates a standard user role ---
-    const assignedRole = "user";
+    // --- Public signup supports limited roles only ---
+    const requestedRole = String(role || "user").toLowerCase();
+    const assignedRole = PUBLIC_SIGNUP_ROLES.includes(requestedRole)
+      ? requestedRole
+      : "user";
 
     // --- Insert user ---
     const result = await pool.query(

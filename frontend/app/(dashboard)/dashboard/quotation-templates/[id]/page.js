@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
 
 export default function QuotationTemplateDetailPage() {
   const params = useParams();
   const router = useRouter();
   const templateId = params?.id;
+  const role = useAuthStore((state) => state.user?.role);
 
   const products = useDataStore((state) => state.products);
   const plans = useDataStore((state) => state.plans);
@@ -23,6 +25,11 @@ export default function QuotationTemplateDetailPage() {
   );
 
   const [draft, setDraft] = useState(null);
+  const isAdmin = String(role || "").toLowerCase() === "admin";
+
+  if (!isAdmin) {
+    return <p className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">Quotation templates are restricted to admins.</p>;
+  }
 
   useEffect(() => {
     fetchQuotationTemplates();

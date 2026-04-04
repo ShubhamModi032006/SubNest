@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
 
 const statusColors = {
   active: "bg-emerald-100 text-emerald-700",
@@ -10,7 +11,7 @@ const statusColors = {
 };
 
 export default function QuotationTemplatesPage() {
-  const role = useDataStore((state) => state.role);
+  const role = useAuthStore((state) => state.user?.role);
   const quotationTemplates = useDataStore((state) => state.quotationTemplates);
   const loadingQuotationTemplates = useDataStore((state) => state.loadingQuotationTemplates);
   const fetchQuotationTemplates = useDataStore((state) => state.fetchQuotationTemplates);
@@ -20,7 +21,11 @@ export default function QuotationTemplatesPage() {
     fetchQuotationTemplates();
   }, [fetchQuotationTemplates]);
 
-  const canManage = role === "admin" || role === "internal";
+  const canManage = String(role || "").toLowerCase() === "admin";
+
+  if (!canManage) {
+    return <p className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">Quotation templates are restricted to admins.</p>;
+  }
 
   return (
     <section className="space-y-5">
