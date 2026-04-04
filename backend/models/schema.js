@@ -1,6 +1,10 @@
 const pool = require("./db");
 
 const createTables = async () => {
+  const createPgcryptoExtension = `
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+  `;
+
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -23,6 +27,9 @@ const createTables = async () => {
   `;
 
   try {
+    await pool.query(createPgcryptoExtension);
+    console.log("✅ Extension pgcrypto ready");
+
     await pool.query(createUsersTable);
     console.log("✅ Users table ready");
     await pool.query(createPasswordResetsTable);
