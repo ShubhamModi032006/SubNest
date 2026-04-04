@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { name, email, password } = body;
+    const { name, email, password, role } = body;
 
     // Simulate network delay
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -13,10 +13,13 @@ export async function POST(request) {
       return NextResponse.json({ message: 'All fields are required' }, { status: 400 });
     }
     
+    const newUser = { id: Date.now().toString(), name, email, role: role || 'user' };
+    const fakeJwt = Buffer.from(JSON.stringify(newUser)).toString('base64');
+    
     // Simulate successful signup
     return NextResponse.json({
-      user: { id: '2', name, email },
-      token: 'fake-jwt-token-newuser123'
+      user: newUser,
+      token: fakeJwt
     }, { status: 201 });
 
   } catch (error) {
