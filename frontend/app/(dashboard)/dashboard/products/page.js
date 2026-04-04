@@ -224,8 +224,8 @@ export default function ProductsPage() {
 
       <ApprovalRequestModal
         open={requestModal.open}
-        title="Request admin approval"
-        description="Deleting products is restricted for internal users. Add a reason to submit this request."
+        title="Request product deletion approval"
+        description="Internal users cannot delete products directly. Submit a reason and an admin can approve or reject this request from the Approvals page."
         loading={creatingRequest}
         onClose={() => setRequestModal({ open: false, productId: null, productName: "" })}
         onSubmit={submitDeleteApproval}
