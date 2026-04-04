@@ -15,13 +15,14 @@ import { ApprovalRequestModal } from "@/components/approvals/ApprovalRequestModa
 import { isInternal } from "@/lib/rbac/permissions";
 
 const initialForm = {
+  isPublicListing: true,
   customerId: "",
   customerType: "user",
   customerLabel: "",
   quotationTemplate: "",
   recurringPlanId: "",
   recurringPlanLabel: "",
-  startDate: "",
+  startDate: new Date().toISOString().slice(0, 10),
   expirationDate: "",
   paymentTerms: "Due on receipt",
   nextInvoiceDate: "",
@@ -43,15 +44,11 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
   const router = useRouter();
   const { user } = useAuthStore();
   const {
-    users,
-    contacts,
     products,
     plans,
     quotationTemplates,
     taxes,
     discounts,
-    fetchUsers,
-    fetchContacts,
     fetchProducts,
     fetchPlans,
     fetchQuotationTemplates,
@@ -88,24 +85,18 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     [plans, form.recurringPlanId]
   );
 
-  const customerOptions = useMemo(() => {
-    const userOptions = users.map((item) => ({ value: `user:${item.id}`, label: `${item.name} (User)` }));
-    const contactOptions = contacts.map((item) => ({ value: `contact:${item.id}`, label: `${item.name} (Contact)` }));
-    return [...userOptions, ...contactOptions];
-  }, [users, contacts]);
-
   const selectedStatus = form.status || "Draft";
   const restrictedFinancialImpact = isInternal(role) && ["Confirmed", "Active"].includes(selectedStatus);
 
   useEffect(() => {
-    fetchUsers();
-    fetchContacts();
     fetchProducts();
     fetchPlans();
     fetchQuotationTemplates();
-    fetchTaxes();
-    fetchDiscounts();
-  }, [fetchUsers, fetchContacts, fetchProducts, fetchPlans, fetchQuotationTemplates, fetchTaxes, fetchDiscounts]);
+    if (isAdmin) {
+      fetchTaxes();
+      fetchDiscounts();
+    }
+  }, [isAdmin, fetchProducts, fetchPlans, fetchQuotationTemplates, fetchTaxes, fetchDiscounts]);
 
   useEffect(() => {
     if (mode === "create" && !form.recurringPlanId && plans.length > 0) {
@@ -121,12 +112,6 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
   }, [mode, form, orderLines, setSubscriptionDraft]);
 
   const updateForm = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
-
-  const onCustomerChange = (value) => {
-    const [customerType, customerId] = value.split(":");
-    const label = customerOptions.find((item) => item.value === value)?.label || "";
-    setForm((prev) => ({ ...prev, customerType, customerId, customerLabel: label }));
-  };
 
   const onQuotationTemplateChange = (templateId) => {
     const template = quotationTemplates.find((item) => item.id === templateId);
@@ -159,7 +144,6 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
   };
 
   const validate = () => {
-    if (!form.customerId) return "Customer is required.";
     if (!form.recurringPlanId) return "Recurring plan is required.";
     if (!form.startDate) return "Start date is required.";
     if (form.expirationDate && new Date(form.expirationDate) < new Date(form.startDate)) {
@@ -171,6 +155,10 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
 
   const payload = {
     ...form,
+    isPublicListing: true,
+    customerId: "",
+    customerType: "user",
+    customerLabel: "",
     recurringPlanLabel: selectedPlan?.name || "",
     orderLines,
   };
@@ -357,19 +345,11 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
         <div className="space-y-6 lg:col-span-2">
           <section className="rounded-xl border border-border/50 bg-card/70 p-5">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Customer</Label>
-                <select
-                  value={`${form.customerType}:${form.customerId}`}
-                  onChange={(e) => onCustomerChange(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
-                  disabled={!canManage}
-                >
-                  <option value=":">Select customer</option>
-                  {customerOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Visibility</Label>
+                <p className="text-sm text-muted-foreground">
+                  This subscription is published as a public offering. Users can view and purchase it from their portal.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Quotation Template (optional)</Label>

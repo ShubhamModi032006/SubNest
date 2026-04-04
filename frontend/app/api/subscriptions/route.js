@@ -13,11 +13,11 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const payload = await request.json();
-    if (!payload.customerId) {
-      return NextResponse.json({ message: "Customer is required." }, { status: 400 });
-    }
     if (!payload.recurringPlanId) {
       return NextResponse.json({ message: "Recurring plan is required." }, { status: 400 });
+    }
+    if (!payload.startDate && !payload.start_date) {
+      payload.startDate = new Date().toISOString().slice(0, 10);
     }
 
     const subscription = subscriptionsDb.create(payload);

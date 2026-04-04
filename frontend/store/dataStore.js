@@ -112,7 +112,7 @@ const normalizeSubscription = (subscription) => ({
   id: subscription?.id ?? subscription?._id ?? subscription?.subscriptionId ?? subscription?.subscription_id ?? '',
   subscriptionNumber: subscription?.subscriptionNumber ?? subscription?.subscription_number,
   customerId: subscription?.customerId ?? subscription?.customer_id ?? subscription?.customer?.id ?? '',
-  customerType: subscription?.customerType ?? subscription?.customer_type ?? subscription?.customer?.type ?? 'user',
+  customerType: subscription?.customerType ?? subscription?.customer_type ?? subscription?.customer?.type ?? (subscription?.is_public ? 'public' : 'user'),
   customerLabel: subscription?.customerLabel ?? subscription?.customer?.name ?? '-',
   recurringPlanId: subscription?.recurringPlanId ?? subscription?.plan?.id ?? '',
   recurringPlanLabel: subscription?.recurringPlanLabel ?? subscription?.plan?.name ?? '',
@@ -142,6 +142,7 @@ const normalizeSubscription = (subscription) => ({
 });
 
 const toSubscriptionPayload = (payload) => ({
+  is_public: Boolean(payload?.isPublicListing),
   customer_id: payload?.customerId,
   customer_type: payload?.customerType,
   plan_id: payload?.recurringPlanId,
