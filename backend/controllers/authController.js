@@ -14,7 +14,7 @@ const RESET_TOKEN_EXPIRY_HOURS = 1;
 // ─────────────────────────────────────────────
 const generateToken = (user) => {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, name: user.name, email: user.email, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
   );
@@ -27,7 +27,7 @@ const generateToken = (user) => {
 // ─────────────────────────────────────────────
 const signup = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role } = req.body;
 
     // --- Basic field validation ---
     if (!name || !email || !password) {
@@ -62,12 +62,16 @@ const signup = async (req, res, next) => {
     // --- Hash password ---
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
+    // --- Determine Role ---
+    const validRoles = ['admin', 'internal', 'user'];
+    const assignedRole = validRoles.includes(role) ? role : 'user';
+
     // --- Insert user ---
     const result = await pool.query(
       `INSERT INTO users (name, email, password, role)
-       VALUES ($1, $2, $3, 'user')
+       VALUES ($1, $2, $3, $4)
        RETURNING id, name, email, role, created_at`,
-      [name.trim(), email.toLowerCase(), hashedPassword]
+      [name.trim(), email.toLowerCase(), hashedPassword, assignedRole]
     );
 
     const newUser = result.rows[0];
@@ -82,8 +86,7 @@ const signup = async (req, res, next) => {
           id: newUser.id,
           name: newUser.name,
           email: newUser.email,
-          role: newUser.role,
-          created_at: newUser.created_at,
+          role: newUser.role
         },
       },
       "Account created successfully."
@@ -137,8 +140,7 @@ const login = async (req, res, next) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role,
-          created_at: user.created_at,
+          role: user.role
         },
       },
       "Login successful."
@@ -295,16 +297,11 @@ const resetPassword = async (req, res, next) => {
 // ─────────────────────────────────────────────
 const getMe = async (req, res, next) => {
   try {
-    const result = await pool.query(
-      "SELECT id, name, email, role, created_at FROM users WHERE id = $1",
-      [req.user.id]
-    );
-
-    if (result.rows.length === 0) {
-      return sendError(res, 404, "User not found.");
-    }
-
-    return sendSuccess(res, 200, { user: result.rows[0] }, "User fetched.");
+    const { id, name, email, role } = req.user; // Extracted directly from validated token
+    
+    return sendSuccess(res, 200, { 
+      user: { id, name, email, role } 
+    }, "User fetched.");
   } catch (error) {
     next(error);
   }
