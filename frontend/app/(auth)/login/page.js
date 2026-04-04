@@ -11,7 +11,7 @@ import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setAuth, setLoading, setError, loading, error } = useAuthStore();
+  const { login, setError, loading, error } = useAuthStore();
   
   const [formData, setFormData] = useState({
     email: "",
@@ -44,26 +44,12 @@ export default function LoginPage() {
       return;
     }
 
-    setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        setAuth(data.user, data.token);
-        router.push("/dashboard"); // Redirect to dashboard logic
-      } else {
-        setError(data.message || "Failed to login");
-      }
+      await login(formData.email, formData.password);
+      router.push("/dashboard");
     } catch (err) {
-      setError("An unexpected error occurred");
-    } finally {
-      setLoading(false);
+      setError(err?.message || "An unexpected error occurred");
     }
   };
 
