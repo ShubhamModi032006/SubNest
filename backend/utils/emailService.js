@@ -1,6 +1,9 @@
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
+const isProduction = process.env.NODE_ENV === "production";
+const allowDevFallback = process.env.ALLOW_EMAIL_DEV_FALLBACK === "true";
+
 // Create reusable transporter
 const createTransporter = () => {
   return nodemailer.createTransport({
@@ -21,6 +24,16 @@ const createTransporter = () => {
  * @param {string} [options.text] - Plain text fallback
  */
 const sendEmail = async ({ to, subject, html, text }) => {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    if (isProduction || !allowDevFallback) {
+      throw new Error("Email service is not configured.");
+    }
+
+    // Dev fallback: keep auth flow working without SMTP credentials.
+    console.warn("⚠️ EMAIL_USER/EMAIL_PASS missing. Skipping real email send in development.");
+    return { success: true, messageId: "dev-fallback-no-smtp" };
+  }
+
   const transporter = createTransporter();
 
   const mailOptions = {
@@ -36,7 +49,13 @@ const sendEmail = async ({ to, subject, html, text }) => {
     console.log(`📧 Email sent to ${to}: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error("❌ Failed to send email:", error.message);
+    console.error("❌ Failed to send email:", error.message, error.response || "");
+
+    if (!isProduction && allowDevFallback) {
+      console.warn("⚠️ Falling back to dev mode email success to avoid blocking reset flow.");
+      return { success: true, messageId: "dev-fallback-send-failed" };
+    }
+
     throw new Error("Failed to send email. Please try again later.");
   }
 };
