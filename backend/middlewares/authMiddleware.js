@@ -28,24 +28,27 @@ const protect = (req, res, next) => {
 
 /**
  * Middleware to restrict access by role.
- * Usage: authorize("admin") or authorize("admin", "internal")
+ * Usage: allowRoles("admin") or allowRoles("admin", "internal")
  */
-const authorize = (...roles) => {
+const allowRoles = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
       return sendError(res, 401, "Not authenticated.");
     }
 
     if (!roles.includes(req.user.role)) {
+      console.warn(`[RBAC] Access denied. User ${req.user.email} has role '${req.user.role}' but endpoint requires ${roles.join(" or ")}`);
       return sendError(
         res,
         403,
         `Access forbidden. Required role: ${roles.join(" or ")}.`
       );
     }
+    
+    console.log(`[RBAC] Access granted. User ${req.user.email} accessed with role '${req.user.role}' on ${req.originalUrl || req.url}`);
 
     next();
   };
 };
 
-module.exports = { protect, authorize };
+module.exports = { protect, allowRoles };
