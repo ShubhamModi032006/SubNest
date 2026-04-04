@@ -2,14 +2,35 @@ const pool = require("../models/db");
 
 const normalize = (value) => (value === undefined || value === null ? null : String(value).trim());
 
+const ALLOWED_TYPES = new Set(["success", "error", "warning", "info"]);
+
+const normalizeNotificationType = (type) => {
+  const normalized = String(type || "info").trim().toLowerCase();
+  if (ALLOWED_TYPES.has(normalized)) {
+    return normalized;
+  }
+
+  // Map domain-specific labels to the DB-safe notification type values.
+  const typeMap = {
+    approval: "warning",
+    payment: "success",
+    invoice: "info",
+    order: "info",
+    subscription: "info",
+  };
+
+  return typeMap[normalized] || "info";
+};
+
 const createNotification = async ({ userId, message, type = "info" }, client = null) => {
   if (!userId || !message) return null;
   const executor = client || pool;
+  const safeType = normalizeNotificationType(type);
   const result = await executor.query(
     `INSERT INTO notifications (user_id, message, type, read_status)
      VALUES ($1, $2, $3, FALSE)
      RETURNING id, user_id, message, type, read_status, created_at`,
-    [normalize(userId), normalize(message), normalize(type) || "info"]
+    [normalize(userId), normalize(message), safeType]
   );
   return result.rows[0] || null;
 };

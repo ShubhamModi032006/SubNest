@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,9 @@ export default function CartPage() {
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const discountCode = useCartStore((state) => state.discountCode);
   const setDiscountCode = useCartStore((state) => state.setDiscountCode);
+  const refreshPricing = useCartStore((state) => state.refreshPricing);
+  const pricingLoading = useCartStore((state) => state.pricingLoading);
+  const pricingError = useCartStore((state) => state.pricingError);
   const totals = useMemo(() => totalsCalculator(), [items, discountCode, totalsCalculator]);
 
   const [code, setCode] = useState(discountCode);
@@ -24,6 +27,11 @@ export default function CartPage() {
   const empty = items.length === 0;
 
   const handleApply = () => setDiscountCode(code);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    refreshPricing().catch(() => null);
+  }, [items, discountCode, refreshPricing]);
 
   return (
     <PortalShell title="Cart" subtitle="Review products, quantities, plans, and discounts before checkout.">
@@ -42,8 +50,16 @@ export default function CartPage() {
               <div key={item.id} className="rounded-2xl border border-border/50 bg-background/50 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-lg font-semibold">{item.productName}</p>
-                    <p className="text-sm text-muted-foreground">{item.variantLabel} · {item.planLabel}</p>
+                    <p className="text-lg font-semibold">
+                      {item.itemType === "subscription" ? item.subscriptionNumber : item.productName}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {item.itemType === "subscription" 
+                        ? item.planName || "Subscription"
+                        : `${item.variantLabel} · ${item.planLabel}`
+                      }
+                    </p>
+                    {item.description && <p className="text-xs text-muted-foreground mt-1">{item.description}</p>}
                     <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">Unit {money(item.unitPrice)}</p>
                   </div>
                   <button type="button" onClick={() => removeItem(item.id)} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-destructive">
@@ -75,6 +91,8 @@ export default function CartPage() {
                 </Button>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">Manual discounts are supported when the code is eligible.</p>
+              {pricingLoading ? <p className="mt-2 text-xs text-muted-foreground">Recalculating totals from server...</p> : null}
+              {pricingError ? <p className="mt-2 text-xs text-red-200">{pricingError}</p> : null}
             </div>
 
             <div className="rounded-2xl border border-border/50 bg-background/50 p-4 text-sm">

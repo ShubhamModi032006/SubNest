@@ -8,11 +8,12 @@ import { useAuthStore } from "@/store/authStore";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { subscribeToToasts } from "@/lib/toast";
 import { cn } from "@/lib/utils";
-import { ShoppingCart, Home, Store, UserRound, Loader2, LogOut, Bell, Sun, Moon } from "lucide-react";
+import { ShoppingCart, Home, Store, UserRound, Loader2, LogOut, Bell, Sun, Moon, Repeat } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home },
   { href: "/shop", label: "Shop", icon: Store },
+  { href: "/my-subscriptions", label: "My Subscriptions", icon: Repeat },
   { href: "/my-account", label: "My Account", icon: UserRound },
   { href: "/cart", label: "Cart", icon: ShoppingCart },
 ];
@@ -88,7 +89,7 @@ export function PortalShell({ title, subtitle, children, showBackdrop = true }) 
       <header className="sticky top-0 z-30 border-b border-border/50 bg-background/75 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-cyan-400 text-sm font-black text-white shadow-lg shadow-primary/20">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-linear-to-br from-primary to-cyan-400 text-sm font-black text-white shadow-lg shadow-primary/20">
               S
             </div>
             <div>

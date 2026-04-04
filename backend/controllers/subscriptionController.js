@@ -244,6 +244,7 @@ const buildSubscriptionItems = ({ items, productsById, variantsById, discountsBy
 const parseSubscriptionPayload = (body) => {
   const items = Array.isArray(body.items) ? body.items : null;
   return {
+    is_public: Boolean(body.is_public ?? body.isPublic),
     customer_id: normalizeText(body.customer_id),
     customer_type: body.customer_type ? String(body.customer_type).trim() : undefined,
     plan_id: normalizeText(body.plan_id),
@@ -258,7 +259,7 @@ const parseSubscriptionPayload = (body) => {
 const validateSubscriptionPayload = (payload) => {
   const errors = [];
 
-  if (!payload.customer_id) {
+  if (!payload.is_public && !payload.customer_id) {
     errors.push("Customer is required.");
   }
 
@@ -266,8 +267,8 @@ const validateSubscriptionPayload = (payload) => {
     errors.push("Plan is required when quotation template is not selected.");
   }
 
-  if (payload.customer_type && !["user", "contact"].includes(payload.customer_type)) {
-    errors.push("Customer type must be user or contact.");
+  if (payload.customer_type && !["user", "contact", "public"].includes(payload.customer_type)) {
+    errors.push("Customer type must be user, contact, or public.");
   }
 
   if (!payload.start_date || !isValidDate(payload.start_date)) {
@@ -346,12 +347,16 @@ const hydrateSubscription = async (subscriptionId) => {
   return {
     id: row.id,
     subscription_number: row.subscription_number,
+    is_public: Boolean(row.is_public),
+    created_by: row.created_by,
     customer_id: row.customer_type === "user" ? row.customer_user_id : row.customer_contact_id,
     customer_type: row.customer_type,
     customer:
       row.customer_type === "user"
         ? { id: row.user_id, name: row.user_name, email: row.user_email }
-        : { id: row.contact_id, name: row.contact_name, email: row.contact_email },
+        : row.customer_type === "contact"
+          ? { id: row.contact_id, name: row.contact_name, email: row.contact_email }
+          : null,
     plan: {
       id: row.plan_id,
       name: row.plan_name,
@@ -370,13 +375,19 @@ const hydrateSubscription = async (subscriptionId) => {
 const createSubscription = async (req, res, next) => {
   try {
     const payload = parseSubscriptionPayload(req.body);
+    payload.is_public = true;
+    payload.customer_id = null;
+    payload.customer_type = "public";
+    if (!payload.start_date) {
+      payload.start_date = new Date().toISOString().slice(0, 10);
+    }
     const errors = validateSubscriptionPayload(payload);
     if (errors.length > 0) {
       return sendError(res, 400, errors.join(" "));
     }
 
     const subscription = await withTransaction(async (client) => {
-      const customer = await resolveCustomer(client, payload.customer_id, payload.customer_type);
+      const catalogOwnerId = String(req.user?.id || "").trim() || null;
       const template = payload.quotation_template_id
         ? await loadQuotationTemplate(client, payload.quotation_template_id)
         : null;
@@ -413,14 +424,16 @@ const createSubscription = async (req, res, next) => {
       }
 
       const subscriptionResult = await client.query(
-        `INSERT INTO subscriptions (subscription_number, customer_user_id, customer_contact_id, customer_type, plan_id, start_date, expiration_date, payment_terms, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')
+        `INSERT INTO subscriptions (
+           subscription_number, is_public, created_by,
+           customer_user_id, customer_contact_id, customer_type,
+           plan_id, start_date, expiration_date, payment_terms, status
+         )
+         VALUES ($1, TRUE, $2, NULL, NULL, 'public', $3, $4, $5, $6, 'draft')
          RETURNING id, subscription_number`,
         [
           subscriptionNumber,
-          customer.customer_user_id,
-          customer.customer_contact_id,
-          customer.customer_type,
+          catalogOwnerId,
           plan.id,
           payload.start_date,
           payload.expiration_date || null,
@@ -554,12 +567,16 @@ const getSubscriptions = async (req, res, next) => {
     const subscriptions = data.rows.map((row) => ({
       id: row.id,
       subscription_number: row.subscription_number,
+      is_public: Boolean(row.is_public),
+      created_by: row.created_by,
       customer_id: row.customer_type === "user" ? row.customer_user_id : row.customer_contact_id,
       customer_type: row.customer_type,
       customer:
         row.customer_type === "user"
           ? { id: row.customer_user_id, name: row.user_name, email: row.user_email }
-          : { id: row.customer_contact_id, name: row.contact_name, email: row.contact_email },
+          : row.customer_type === "contact"
+            ? { id: row.customer_contact_id, name: row.contact_name, email: row.contact_email }
+            : null,
       plan: { id: row.plan_id, name: row.plan_name },
       start_date: row.start_date,
       expiration_date: row.expiration_date,
@@ -618,8 +635,8 @@ const updateSubscription = async (req, res, next) => {
       return sendError(res, 400, "Provide at least one field to update.");
     }
 
-    if (payload.customer_type && !["user", "contact"].includes(payload.customer_type)) {
-      updateErrors.push("Customer type must be user or contact.");
+    if (payload.customer_type && !["user", "contact", "public"].includes(payload.customer_type)) {
+      updateErrors.push("Customer type must be user, contact, or public.");
     }
 
     if (payload.start_date && !isValidDate(payload.start_date)) {
@@ -659,9 +676,12 @@ const updateSubscription = async (req, res, next) => {
         throw error;
       }
 
+      const nextIsPublic = payload.is_public ?? existing.is_public;
       const nextCustomerId = payload.customer_id || existing.customer_id;
       const nextCustomerType = payload.customer_type || existing.customer_type;
-      const customer = await resolveCustomer(client, nextCustomerId, nextCustomerType);
+      const customer = nextIsPublic
+        ? { customer_user_id: null, customer_contact_id: null, customer_type: "public" }
+        : await resolveCustomer(client, nextCustomerId, nextCustomerType);
       const plan = payload.plan_id ? await loadPlan(client, payload.plan_id) : await loadPlan(client, existing.plan.id);
       const sourceItems = payload.items || existing.items.map((item) => ({
         product_id: item.product_id,
@@ -683,15 +703,17 @@ const updateSubscription = async (req, res, next) => {
          SET customer_user_id = $1,
              customer_contact_id = $2,
              customer_type = $3,
-             plan_id = $4,
-             start_date = COALESCE($5, start_date),
-             expiration_date = COALESCE($6, expiration_date),
-             payment_terms = COALESCE($7, payment_terms)
-         WHERE id = $8`,
+             is_public = $4,
+             plan_id = $5,
+             start_date = COALESCE($6, start_date),
+             expiration_date = COALESCE($7, expiration_date),
+             payment_terms = COALESCE($8, payment_terms)
+         WHERE id = $9`,
         [
           customer.customer_user_id,
           customer.customer_contact_id,
           customer.customer_type,
+          Boolean(nextIsPublic),
           plan.id,
           payload.start_date || null,
           payload.expiration_date || null,
@@ -842,6 +864,7 @@ const cloneSubscription = async (subscriptionId, overrides = {}) => {
     }
 
     const payload = {
+      is_public: overrides.is_public ?? current.is_public,
       customer_id: overrides.customer_id || current.customer_id,
       customer_type: overrides.customer_type || current.customer_type,
       plan_id: overrides.plan_id || current.plan.id,
@@ -855,7 +878,9 @@ const cloneSubscription = async (subscriptionId, overrides = {}) => {
       })),
     };
 
-    const customer = await resolveCustomer(client, payload.customer_id, payload.customer_type);
+    const customer = payload.is_public
+      ? { customer_user_id: null, customer_contact_id: null, customer_type: "public" }
+      : await resolveCustomer(client, payload.customer_id, payload.customer_type);
     const plan = await loadPlan(client, payload.plan_id);
     const loaded = await loadProductsForItems(client, payload.items);
     const items = buildSubscriptionItems({
@@ -869,14 +894,15 @@ const cloneSubscription = async (subscriptionId, overrides = {}) => {
 
     const subscriptionNumber = generateSubscriptionNumber();
     const inserted = await client.query(
-      `INSERT INTO subscriptions (subscription_number, customer_user_id, customer_contact_id, customer_type, plan_id, start_date, expiration_date, payment_terms, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')
+      `INSERT INTO subscriptions (subscription_number, customer_user_id, customer_contact_id, customer_type, is_public, plan_id, start_date, expiration_date, payment_terms, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft')
        RETURNING id`,
       [
         subscriptionNumber,
         customer.customer_user_id,
         customer.customer_contact_id,
         customer.customer_type,
+        Boolean(payload.is_public),
         plan.id,
         payload.start_date,
         payload.expiration_date,

@@ -96,10 +96,12 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS discounts (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name VARCHAR(255) NOT NULL,
+      is_public BOOLEAN NOT NULL DEFAULT FALSE,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       type VARCHAR(20) NOT NULL CHECK (type IN ('fixed', 'percentage')),
       value NUMERIC(12, 2) NOT NULL CHECK (value > 0),
       min_purchase NUMERIC(12, 2) CHECK (min_purchase IS NULL OR min_purchase > 0),
-      min_quantity INTEGER CHECK (min_quantity IS NULL OR min_quantity > 0),
+      customer_type VARCHAR(20) NOT NULL CHECK (customer_type IN ('user', 'contact', 'public')),
       start_date DATE,
       end_date DATE,
       usage_limit INTEGER CHECK (usage_limit IS NULL OR usage_limit > 0),
@@ -128,6 +130,52 @@ const createTables = async () => {
       is_archived BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+  `;
+
+  const updateSubscriptionsCustomerConstraint = `
+    DO $$
+    DECLARE
+      constraint_name text;
+    BEGIN
+      FOR constraint_name IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'subscriptions'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) ILIKE '%customer_user_id%'
+      LOOP
+        EXECUTE format('ALTER TABLE subscriptions DROP CONSTRAINT %I', constraint_name);
+      END LOOP;
+
+      ALTER TABLE subscriptions
+      ADD CONSTRAINT subscriptions_customer_assignment_check
+      CHECK (
+        is_public = TRUE OR
+        (CASE WHEN customer_user_id IS NOT NULL THEN 1 ELSE 0 END +
+         CASE WHEN customer_contact_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+      );
+    END $$;
+  `;
+
+  const updateSubscriptionsCustomerTypeConstraint = `
+    DO $$
+    DECLARE
+      constraint_name text;
+    BEGIN
+      FOR constraint_name IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'subscriptions'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) ILIKE '%customer_type%'
+      LOOP
+        EXECUTE format('ALTER TABLE subscriptions DROP CONSTRAINT %I', constraint_name);
+      END LOOP;
+
+      ALTER TABLE subscriptions
+      ADD CONSTRAINT subscriptions_customer_type_check
+      CHECK (customer_type IN ('user', 'contact', 'public'));
+    END $$;
   `;
 
   const createProductVariantsTable = `
@@ -159,7 +207,9 @@ const createTables = async () => {
       customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
       customer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
       customer_contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
-      customer_type VARCHAR(20) NOT NULL CHECK (customer_type IN ('user', 'contact')),
+      customer_type VARCHAR(20) NOT NULL CHECK (customer_type IN ('user', 'contact', 'public')),
+      is_public BOOLEAN NOT NULL DEFAULT FALSE,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       plan_id UUID NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,
       start_date DATE NOT NULL,
       expiration_date DATE,
@@ -250,6 +300,8 @@ const createTables = async () => {
   const alterSubscriptionsTable = `
     ALTER TABLE subscriptions
     ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     ADD COLUMN IF NOT EXISTS order_id UUID;
   `;
 
@@ -539,6 +591,8 @@ const createTables = async () => {
 
     await pool.query(createSubscriptionsTable);
     await pool.query(alterSubscriptionsTable);
+    await pool.query(updateSubscriptionsCustomerConstraint);
+    await pool.query(updateSubscriptionsCustomerTypeConstraint);
     console.log("✅ Subscriptions table ready");
 
     await pool.query(createSubscriptionItemsTable);

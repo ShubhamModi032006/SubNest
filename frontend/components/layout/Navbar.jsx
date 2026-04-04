@@ -59,8 +59,12 @@ export function Navbar({ onMenuToggle }) {
 
   useEffect(() => {
     const unsubscribe = subscribeToToasts((toast) => {
-      let type = "Approval updates";
+      let type = "System update";
       const text = String(toast.message || "").toLowerCase();
+      if (toast.type === "error") type = "System alert";
+      if (toast.type === "warning") type = "Action required";
+      if (toast.type === "success") type = "Update";
+      if (toast.type === "info") type = "Info";
       if (text.includes("payment")) type = "Payment success";
       if (text.includes("invoice")) type = "Invoice generated";
       if (text.includes("approval")) type = "Approval updates";
