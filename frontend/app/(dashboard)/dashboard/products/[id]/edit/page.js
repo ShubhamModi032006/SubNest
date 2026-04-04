@@ -15,7 +15,7 @@ export default function EditProductPage() {
   const id = params.id;
   const router = useRouter();
   
-  const { products, fetchProducts, updateProduct } = useDataStore();
+  const { products, plans, taxes, fetchProducts, fetchPlans, fetchTaxes, updateProduct } = useDataStore();
   
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -23,29 +23,35 @@ export default function EditProductPage() {
   const [activeTab, setActiveTab] = useState("basic");
   
   const [formData, setFormData] = useState({
-    name: "", type: "Service", salesPrice: "", costPrice: "", tax: "Standard 20%"
+    name: "", type: "Service", salesPrice: "", costPrice: "", tax: ""
   });
 
   const [recurringPrices, setRecurringPrices] = useState([]);
   const [variants, setVariants] = useState([]);
 
   useEffect(() => {
-    fetchProducts().then(() => setLoading(false));
-  }, [fetchProducts]);
+    Promise.all([fetchProducts(), fetchPlans(), fetchTaxes()]).then(() => setLoading(false));
+  }, [fetchProducts, fetchPlans, fetchTaxes]);
 
   useEffect(() => {
     if (!loading && products.length > 0) {
       const p = products.find(x => x.id === id);
       if (p) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setFormData({ 
           name: p.name, type: p.type, 
-          salesPrice: p.salesPrice, costPrice: p.costPrice, tax: p.tax || "Standard 20%" 
+          salesPrice: p.salesPrice, costPrice: p.costPrice, tax: p.tax || taxes[0]?.id || "" 
         });
-        setRecurringPrices(p.recurringPrices || []);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setRecurringPrices((p.recurringPrices || []).map((item) => ({
+          ...item,
+          planId: item.planId || plans.find((plan) => plan.name === item.planName)?.id || "",
+        })));
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setVariants(p.variants || []);
       }
     }
-  }, [loading, products, id]);
+  }, [loading, products, id, taxes, plans]);
 
   const handleChange = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
 
@@ -62,7 +68,14 @@ export default function EditProductPage() {
         ...formData,
         salesPrice: Number(formData.salesPrice) || 0,
         costPrice: Number(formData.costPrice) || 0,
-        recurringPrices,
+        recurringPrices: recurringPrices.map((item) => {
+          const selectedPlan = plans.find((plan) => plan.id === item.planId);
+          return {
+            ...item,
+            planId: item.planId,
+            planName: selectedPlan?.name || "",
+          };
+        }),
         variants
       };
       await updateProduct(id, payload);
@@ -73,7 +86,7 @@ export default function EditProductPage() {
     }
   };
 
-  const addRecurring = () => setRecurringPrices(p => [...p, { id: Date.now().toString(), plan: "", price: 0, minQuantity: 1, startDate: "", endDate: "" }]);
+  const addRecurring = () => setRecurringPrices(p => [...p, { id: Date.now().toString(), planId: plans[0]?.id || "", price: 0, minQuantity: 1, startDate: "", endDate: "" }]);
   const removeRecurring = (rId) => setRecurringPrices(p => p.filter(r => r.id !== rId));
   const updateRecurring = (rId, field, val) => setRecurringPrices(p => p.map(r => r.id === rId ? { ...r, [field]: val } : r));
 
@@ -138,9 +151,11 @@ export default function EditProductPage() {
                 <div className="space-y-2 sm:col-span-2">
                   <Label>Tax Mapping</Label>
                   <select name="tax" value={formData.tax} onChange={handleChange} className="flex h-10 w-full lg:w-1/2 rounded-md border border-input bg-background/50 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">
-                    <option value="Standard 20%">Standard Rate (20%)</option>
-                    <option value="Reduced 5%">Reduced Rate (5%)</option>
-                    <option value="Zero">Zero Rated</option>
+                    {taxes.map((tax) => (
+                      <option key={tax.id} value={tax.id}>
+                        {tax.name} ({tax.type === "Percentage" ? `${tax.value}%` : `$${tax.value}`})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -157,7 +172,18 @@ export default function EditProductPage() {
                   <div className="space-y-3">
                     {recurringPrices.map((r) => (
                       <div key={r.id} className="p-4 rounded-xl border border-border/50 bg-muted/10 grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
-                        <div className="md:col-span-2 space-y-1"><Label className="text-xs">Plan Title</Label><Input value={r.plan} onChange={(e) => updateRecurring(r.id, "plan", e.target.value)} required /></div>
+                        <div className="md:col-span-2 space-y-1">
+                          <Label className="text-xs">Plan</Label>
+                          <select
+                            value={r.planId}
+                            onChange={(e) => updateRecurring(r.id, "planId", e.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
+                          >
+                            {plans.map((plan) => (
+                              <option key={plan.id} value={plan.id}>{plan.name}</option>
+                            ))}
+                          </select>
+                        </div>
                         <div className="space-y-1"><Label className="text-xs">Price ($)</Label><Input type="number" min="0" step="0.01" value={r.price} onChange={(e) => updateRecurring(r.id, "price", e.target.value)} required /></div>
                         <div className="space-y-1"><Label className="text-xs">Min Qty</Label><Input type="number" min="1" value={r.minQuantity} onChange={(e) => updateRecurring(r.id, "minQuantity", e.target.value)} required /></div>
                         <div className="space-y-1"><Label className="text-xs">Start Date</Label><Input type="date" value={r.startDate} onChange={(e) => updateRecurring(r.id, "startDate", e.target.value)} /></div>
