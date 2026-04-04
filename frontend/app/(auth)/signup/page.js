@@ -18,6 +18,7 @@ export default function SignupPage() {
     email: "",
     password: "",
     confirmPassword: "",
+    role: "user",
   });
   const [validationError, setValidationError] = useState("");
 
@@ -60,8 +61,8 @@ export default function SignupPage() {
 
     setError(null);
     try {
-      await signup(formData.name, formData.email, formData.password);
-      router.push("/login");
+      await signup(formData.name, formData.email, formData.password, formData.role);
+      router.push("/dashboard");
     } catch (err) {
       setError(err?.message || "An unexpected error occurred");
     }
@@ -133,6 +134,21 @@ export default function SignupPage() {
             onChange={handleChange}
             autoComplete="new-password"
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="role">Account Role</Label>
+          <select
+            id="role"
+            name="role"
+            value={formData.role}
+            onChange={handleChange}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <option value="user">User</option>
+            <option value="internal">Internal</option>
+            <option value="admin">Admin</option>
+          </select>
         </div>
 
         <Button type="submit" className="w-full !mt-8" disabled={loading}>
