@@ -27,7 +27,7 @@ const generateToken = (user) => {
 // ─────────────────────────────────────────────
 const signup = async (req, res, next) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body;
 
     // --- Basic field validation ---
     if (!name || !email || !password) {
@@ -62,9 +62,8 @@ const signup = async (req, res, next) => {
     // --- Hash password ---
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // --- Determine Role ---
-    const validRoles = ['admin', 'internal', 'user'];
-    const assignedRole = validRoles.includes(role) ? role : 'user';
+    // --- Public signup always creates a standard user role ---
+    const assignedRole = "user";
 
     // --- Insert user ---
     const result = await pool.query(
