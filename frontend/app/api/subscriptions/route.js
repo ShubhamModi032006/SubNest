@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { subscriptionsDb } from "@/lib/subscriptionData";
 
-export async function GET() {
-  return NextResponse.json({ subscriptions: subscriptionsDb.list() }, { status: 200 });
+export async function GET(request) {
+  const url = new URL(request.url);
+  const customerId = url.searchParams.get("customerId");
+  const subscriptions = customerId
+    ? subscriptionsDb.list().filter((item) => String(item.customerId || item.customer_id || "") === String(customerId))
+    : subscriptionsDb.list();
+  return NextResponse.json({ subscriptions }, { status: 200 });
 }
 
 export async function POST(request) {
