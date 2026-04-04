@@ -2,6 +2,7 @@ const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
 const { generateSubscriptionNumber, calculateSubscriptionLine } = require("../utils/subscriptionPricing");
 const { createInvoiceFromSubscriptionInternal } = require("./invoiceController");
+const { createApprovalRequest } = require("../utils/approvalService");
 
 const ALLOWED_STATUSES = ["draft", "quotation", "confirmed", "active", "closed"];
 
@@ -726,6 +727,37 @@ const confirmSubscription = async (req, res, next) => {
 
 const closeSubscription = async (req, res, next) => {
   try {
+    const subscriptionResult = await pool.query("SELECT id, status FROM subscriptions WHERE id = $1", [req.params.id]);
+    if (subscriptionResult.rows.length === 0) {
+      return sendError(res, 404, "Subscription not found.");
+    }
+
+    const currentStatus = subscriptionResult.rows[0].status;
+    const isInternal = req.user.role === "internal";
+    const forcefulStatuses = ["confirmed", "active"];
+
+    if (isInternal && forcefulStatuses.includes(currentStatus)) {
+      const reason = normalizeText(req.body?.reason) || "Requested force close for subscription.";
+      const { approval } = await createApprovalRequest({
+        userId: req.user.id,
+        actionType: "CLOSE_SUBSCRIPTION",
+        entityType: "subscription",
+        entityId: req.params.id,
+        reason,
+      });
+
+      console.log(
+        `[AUDIT] approval_requested requester=${req.user.id} action=CLOSE_SUBSCRIPTION entity=subscription:${req.params.id} approval=${approval.id}`
+      );
+
+      return sendSuccess(
+        res,
+        202,
+        { approval },
+        "Approval request created. Admin approval required for forceful closure."
+      );
+    }
+
     await updateStatus(req.params.id, "closed", ["draft", "quotation", "confirmed", "active"]);
     return sendSuccess(res, 200, {}, "Subscription closed.");
   } catch (error) {

@@ -4,9 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
+import { useAuthStore } from "@/store/authStore";
+import { useApprovalStore } from "@/store/approvalStore";
 import { InvoiceTable } from "@/components/invoices/InvoiceTable";
 import { InvoiceSummaryCard } from "@/components/invoices/InvoiceSummaryCard";
 import { PrintableInvoiceLayout } from "@/components/invoices/PrintableInvoiceLayout";
+import { ApprovalRequestModal } from "@/components/approvals/ApprovalRequestModal";
+import { canCancelInvoice } from "@/lib/rbac/permissions";
 
 const statusStep = ["draft", "confirmed", "sent", "cancelled"];
 
@@ -14,12 +18,14 @@ export default function InvoiceDetailPage() {
   const params = useParams();
   const invoiceId = params?.id;
 
-  const role = useDataStore((state) => state.role);
+  const role = useAuthStore((state) => state.user?.role);
   const invoices = useDataStore((state) => state.invoices);
   const fetchInvoices = useDataStore((state) => state.fetchInvoices);
   const runInvoiceAction = useDataStore((state) => state.runInvoiceAction);
+  const { createRequest, creatingRequest, notification, clearNotification } = useApprovalStore();
 
   const [busyAction, setBusyAction] = useState("");
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
 
   useEffect(() => {
     fetchInvoices();
@@ -31,6 +37,8 @@ export default function InvoiceDetailPage() {
   );
 
   const canManage = role === "admin" || role === "internal";
+  const canCancel = canCancelInvoice(role, invoice?.status);
+  const needsApprovalForCancel = !canCancel && invoice?.status !== "cancelled";
 
   const performAction = async (action) => {
     if (!invoice) return;
@@ -52,6 +60,20 @@ export default function InvoiceDetailPage() {
   if (!invoice) {
     return <p className="text-sm text-muted-foreground">Loading invoice...</p>;
   }
+
+  const requestCancelApproval = async (reason) => {
+    await createRequest({
+      action_type: "CANCEL_INVOICE",
+      entity_type: "invoice",
+      entity_id: invoice.id,
+      reason,
+      payload: {
+        invoice_number: invoice.invoiceNumber,
+        status: invoice.status,
+      },
+    });
+    setApprovalModalOpen(false);
+  };
 
   const currentStep = statusStep.indexOf(invoice.status);
 
@@ -79,6 +101,15 @@ export default function InvoiceDetailPage() {
         })}
       </div>
 
+      {notification ? (
+        <div className="rounded-lg bg-emerald-500/10 px-4 py-2 text-sm text-emerald-700">
+          <div className="flex items-center justify-between gap-3">
+            <span>{notification.message}</span>
+            <button type="button" onClick={clearNotification} className="text-xs font-semibold uppercase">Dismiss</button>
+          </div>
+        </div>
+      ) : null}
+
       {canManage ? (
         <div className="flex flex-wrap items-center gap-2">
           {invoice.status === "draft" ? (
@@ -104,14 +135,31 @@ export default function InvoiceDetailPage() {
           ) : null}
 
           {invoice.status !== "cancelled" ? (
-            <button
-              type="button"
-              disabled={busyAction === "cancel"}
-              className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60"
-              onClick={() => performAction("cancel")}
-            >
-              {busyAction === "cancel" ? "Cancelling..." : "Cancel"}
-            </button>
+            <>
+              <button
+                type="button"
+                disabled={busyAction === "cancel" || needsApprovalForCancel}
+                title={needsApprovalForCancel ? "Requires admin approval" : "Cancel invoice"}
+                className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60"
+                onClick={() => performAction("cancel")}
+              >
+                {busyAction === "cancel" ? "Cancelling..." : "Cancel"}
+              </button>
+              {needsApprovalForCancel ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-border px-3 py-2 text-sm"
+                    onClick={() => setApprovalModalOpen(true)}
+                  >
+                    Request Approval
+                  </button>
+                  <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+                    Restricted
+                  </span>
+                </>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}
@@ -123,6 +171,15 @@ export default function InvoiceDetailPage() {
         </div>
         <InvoiceSummaryCard invoice={invoice} />
       </div>
+
+      <ApprovalRequestModal
+        open={approvalModalOpen}
+        title="Request invoice cancellation approval"
+        description="Cancelling a confirmed invoice has financial impact and requires admin approval."
+        loading={creatingRequest}
+        onClose={() => setApprovalModalOpen(false)}
+        onSubmit={requestCancelApproval}
+      />
     </section>
   );
 }

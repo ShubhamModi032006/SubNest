@@ -250,6 +250,22 @@ const createTables = async () => {
     );
   `;
 
+  const createApprovalsTable = `
+    CREATE TABLE IF NOT EXISTS approvals (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action_type VARCHAR(50) NOT NULL CHECK (action_type IN ('DELETE_PRODUCT', 'CANCEL_INVOICE', 'CLOSE_SUBSCRIPTION', 'MODIFY_PRICING')),
+      entity_type VARCHAR(50) NOT NULL CHECK (entity_type IN ('subscription', 'invoice', 'product', 'plan', 'tax', 'discount', 'template')),
+      entity_id UUID NOT NULL,
+      reason TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      reviewed_at TIMESTAMP WITH TIME ZONE
+    );
+  `;
+
   const createUsersEmailIndex = `
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
   `;
@@ -334,6 +350,18 @@ const createTables = async () => {
     CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
   `;
 
+  const createApprovalsStatusIndex = `
+    CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+  `;
+
+  const createApprovalsUserIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_approvals_user_id ON approvals(user_id);
+  `;
+
+  const createApprovalsEntityIndex = `
+    CREATE INDEX IF NOT EXISTS idx_approvals_entity ON approvals(entity_type, entity_id);
+  `;
+
   try {
     await pool.query(createPgcryptoExtension);
     console.log("✅ Extension pgcrypto ready");
@@ -389,6 +417,9 @@ const createTables = async () => {
     await pool.query(createInvoiceItemsTable);
     console.log("✅ Invoice items table ready");
 
+    await pool.query(createApprovalsTable);
+    console.log("✅ Approvals table ready");
+
     await pool.query(createDiscountsTable);
     console.log("✅ Discounts table ready");
 
@@ -409,6 +440,9 @@ const createTables = async () => {
     await pool.query(createInvoicesStatusIndex);
     await pool.query(createInvoicesSubscriptionIdIndex);
     await pool.query(createInvoiceItemsInvoiceIdIndex);
+    await pool.query(createApprovalsStatusIndex);
+    await pool.query(createApprovalsUserIdIndex);
+    await pool.query(createApprovalsEntityIndex);
     await pool.query(createTaxesNameIndex);
     await pool.query(createPlansNameIndex);
     await pool.query(createDiscountsNameIndex);

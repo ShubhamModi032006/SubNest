@@ -2,6 +2,27 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const { sendError } = require("../utils/apiResponse");
 
+const VALID_ROLES = ["admin", "internal", "user"];
+
+const ROLE_PERMISSIONS = {
+  admin: ["*"],
+  internal: [
+    "APPROVAL_CREATE",
+    "APPROVAL_VIEW",
+    "INVOICE_VIEW",
+    "INVOICE_MANAGE",
+    "SUBSCRIPTION_VIEW",
+    "SUBSCRIPTION_MANAGE",
+  ],
+  user: [],
+};
+
+const hasPermission = (role, permission) => {
+  const normalizedRole = String(role || "").toLowerCase();
+  const permissions = ROLE_PERMISSIONS[normalizedRole] || [];
+  return permissions.includes("*") || permissions.includes(permission);
+};
+
 /**
  * Middleware to protect routes — verifies JWT token from Authorization header.
  */
@@ -16,6 +37,12 @@ const protect = (req, res, next) => {
     const token = authHeader.split(" ")[1];
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (!VALID_ROLES.includes(String(decoded.role || "").toLowerCase())) {
+      return sendError(res, 401, "Invalid role in token.");
+    }
+
+    decoded.role = String(decoded.role).toLowerCase();
     req.user = decoded;
     next();
   } catch (error) {
@@ -36,7 +63,9 @@ const allowRoles = (...roles) => {
       return sendError(res, 401, "Not authenticated.");
     }
 
-    if (!roles.includes(req.user.role)) {
+    const normalizedRoles = roles.map((role) => String(role).toLowerCase());
+
+    if (!normalizedRoles.includes(req.user.role)) {
       console.warn(`[RBAC] Access denied. User ${req.user.email} has role '${req.user.role}' but endpoint requires ${roles.join(" or ")}`);
       return sendError(
         res,
@@ -51,4 +80,18 @@ const allowRoles = (...roles) => {
   };
 };
 
-module.exports = { protect, allowRoles };
+const requirePermission = (permission) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return sendError(res, 401, "Not authenticated.");
+    }
+
+    if (!hasPermission(req.user.role, permission)) {
+      return sendError(res, 403, `Permission denied for action: ${permission}.`);
+    }
+
+    next();
+  };
+};
+
+module.exports = { protect, allowRoles, hasPermission, requirePermission };
