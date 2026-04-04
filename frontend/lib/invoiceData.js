@@ -50,6 +50,8 @@ const normalizeInvoice = (payload, existing = null) => {
     invoiceDate: payload.invoiceDate || new Date().toISOString().slice(0, 10),
     dueDate: payload.dueDate || payload.invoiceDate || new Date().toISOString().slice(0, 10),
     linkedSubscriptionId: payload.linkedSubscriptionId || "",
+    paymentStatus: payload.paymentStatus || existing?.paymentStatus || "Unpaid",
+    paymentDate: payload.paymentDate || existing?.paymentDate || null,
     lines,
     ...totals,
     createdAt: existing?.createdAt || new Date().toISOString(),

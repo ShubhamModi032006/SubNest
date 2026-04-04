@@ -35,7 +35,7 @@ const menuItems = [
   { name: "Approvals", href: "/dashboard/approvals", icon: ShieldCheck, roles: ["admin", "internal"] },
   { name: "Quotation Templates", href: "/dashboard/quotation-templates", icon: FileText, roles: ["admin"] },
   { name: "Users", href: "/dashboard/users", icon: Users, roles: ["admin"] },
-  { name: "Reporting", href: "/reporting", icon: BarChart3, roles: ["admin"] },
+  { name: "Reporting", href: "/dashboard/reports", icon: BarChart3, roles: ["admin"] },
   { name: "My Profile", href: "/profile", icon: UserCircle, roles: ["admin"] },
 ];
 

@@ -33,7 +33,7 @@ export function DashboardLayoutWrapper({ children }) {
         
         // 3. Non-dashboard roles redirect away from dashboard
         if (!canAccessDashboard(currentRole)) {
-          if (isMounted) router.replace("/portal");
+          if (isMounted) router.replace("/");
           return; // Stop here, don't show dashboard
         }
         
