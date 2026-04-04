@@ -15,12 +15,16 @@ import {
   Tag,
   Receipt,
   BadgePercent,
+  FileText,
+  ReceiptText,
 } from "lucide-react";
 import { allowRoles } from "@/lib/guards/roleGuard";
 
 const menuItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Subscriptions", href: "/dashboard/subscriptions", icon: CreditCard, roles: ["admin", "internal"] },
+  { name: "Quotation Templates", href: "/dashboard/quotation-templates", icon: FileText, roles: ["admin", "internal"] },
+  { name: "Invoices", href: "/dashboard/invoices", icon: ReceiptText, roles: ["admin", "internal"] },
   { name: "Products", href: "/dashboard/products", icon: Box },
   { name: "Reporting", href: "/reporting", icon: BarChart3 },
   { name: "Users", href: "/dashboard/users", icon: Users },
