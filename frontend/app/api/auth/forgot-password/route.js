@@ -5,18 +5,43 @@ export async function POST(request) {
     const body = await request.json();
     const { email } = body;
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
     // Basic validation
     if (!email) {
       return NextResponse.json({ message: 'Email is required' }, { status: 400 });
     }
 
-    // Always succeed to not leak user info
-    return NextResponse.json({ message: 'If an account exists, a reset link was sent.' }, { status: 200 });
+    const backendApiUrl =
+      process.env.BACKEND_API_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      'http://localhost:5000/api';
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(`${backendApiUrl}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const data = await response.json().catch(() => ({}));
+    return NextResponse.json(data, { status: response.status });
 
   } catch (error) {
-    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    const isAbort = error?.name === 'AbortError';
+    const message = isAbort
+      ? 'Request timed out while contacting auth service.'
+      : 'Auth service is unavailable. Please ensure backend is running on port 5000.';
+
+    return NextResponse.json(
+      {
+        message,
+        ...(process.env.NODE_ENV !== 'production' ? { detail: error?.message } : {}),
+      },
+      { status: 503 }
+    );
   }
 }
