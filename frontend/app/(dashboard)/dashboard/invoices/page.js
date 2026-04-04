@@ -6,7 +6,7 @@ import { useDataStore } from "@/store/dataStore";
 import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { canCreateInvoice } from "@/lib/rbac/permissions";
+import { canCreateInvoice, canTriggerInvoicePayment } from "@/lib/rbac/permissions";
 
 const statusStyle = {
   draft: "bg-slate-200 text-slate-700",
@@ -32,8 +32,8 @@ export default function InvoicesPage() {
     return invoices.filter((invoice) => invoice.status === statusFilter);
   }, [invoices, statusFilter]);
 
-  const canManage = role === "admin" || role === "internal";
   const allowCreateInvoice = canCreateInvoice(role);
+  const allowTriggerPayment = canTriggerInvoicePayment(role);
 
   return (
     <section className="space-y-5">
@@ -70,14 +70,16 @@ export default function InvoicesPage() {
               <th className="px-4 py-3">Due Date</th>
               <th className="px-4 py-3">Total</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Payment</th>
+              <th className="px-4 py-3">Payment Date</th>
               <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/40">
             {loadingInvoices ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Loading invoices...</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Loading invoices...</td></tr>
             ) : visibleInvoices.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No invoices found.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">No invoices found.</td></tr>
             ) : (
               visibleInvoices.map((invoice) => (
                 <tr key={invoice.id} className="hover:bg-muted/10">
@@ -92,10 +94,22 @@ export default function InvoicesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
+                    <span className={`rounded-full px-2 py-1 text-xs ${invoice.isPaid ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
+                      {invoice.isPaid ? "Paid" : "Unpaid"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{invoice.paymentDate ? new Date(invoice.paymentDate).toLocaleDateString() : "-"}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
                     <Link href={`/dashboard/invoices/${invoice.id}`} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/20">
                       View
                     </Link>
-                    {!canManage ? null : null}
+                    {allowTriggerPayment && String(invoice?.status || "").toLowerCase() === "confirmed" && !invoice.isPaid ? (
+                      <Link href={`/dashboard/invoices/${invoice.id}/pay`} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">
+                        Pay
+                      </Link>
+                    ) : null}
+                    </div>
                   </td>
                 </tr>
               ))

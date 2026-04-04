@@ -46,3 +46,52 @@ input:-webkit-autofill:active{
     -webkit-text-fill-color: var(--color-foreground) !important;
     transition: background-color 5000s ease-in-out 0s;
 }
+
+@keyframes paymentBurst {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes paymentPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 22px rgba(34, 197, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+.payment-success-burst {
+  animation: paymentBurst 500ms ease-out;
+}
+
+.payment-success-ring {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 9999px;
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(74, 222, 128, 0.45);
+  animation: paymentPulse 1.8s ease-out 120ms 2;
+}
+
+.payment-success-check {
+  font-size: 34px;
+  line-height: 1;
+  color: #86efac;
+  font-weight: 700;
+}

@@ -146,6 +146,17 @@ const normalizeInvoice = (invoice) => ({
   discountTotal: Number(invoice?.discountTotal ?? invoice?.discount_total ?? 0),
   taxTotal: Number(invoice?.taxTotal ?? invoice?.tax_total ?? 0),
   subtotal: Number(invoice?.subtotal ?? 0),
+  isPaid: Boolean(
+    invoice?.isPaid ??
+      invoice?.is_paid ??
+      String(invoice?.paymentStatus ?? invoice?.payment_status ?? '').toLowerCase() === 'paid'
+  ),
+  paymentStatus:
+    String(invoice?.paymentStatus ?? invoice?.payment_status ?? '').toLowerCase() === 'paid' ||
+    Boolean(invoice?.isPaid ?? invoice?.is_paid)
+      ? 'Paid'
+      : 'Unpaid',
+  paymentDate: invoice?.paymentDate ?? invoice?.payment_date ?? invoice?.paidAt ?? invoice?.paid_at ?? null,
   linkedSubscriptionId: invoice?.linkedSubscriptionId ?? invoice?.subscription_id ?? '-',
   lines: (invoice?.lines || invoice?.items || []).map((line) => ({
     id: line?.id,
@@ -177,6 +188,9 @@ export const useDataStore = create((set, get) => ({
   loadingDiscounts: false,
   loadingQuotationTemplates: false,
   loadingInvoices: false,
+  loadingPayment: false,
+  paymentStatus: 'idle',
+  lastTransaction: null,
   subscriptionDraft: {
     customerId: "",
     customerType: "user",
@@ -734,5 +748,86 @@ export const useDataStore = create((set, get) => ({
         : [invoice, ...state.invoices],
     }));
     return invoice;
+  },
+
+  createPaymentSession: async (invoiceId) => {
+    set({ loadingPayment: true, paymentStatus: 'creating', error: null });
+    try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const successUrl = `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}&invoice_id=${encodeURIComponent(invoiceId)}`;
+      const cancelUrl = `${origin}/payment/cancel?invoice_id=${encodeURIComponent(invoiceId)}`;
+
+      const response = await fetchApi('/payments/create-session', {
+        method: 'POST',
+        body: JSON.stringify({
+          invoice_id: invoiceId,
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+        }),
+      });
+      const data = getPayload(response);
+      const session = data?.session || data;
+
+      const transaction = {
+        invoiceId,
+        sessionId: session?.id ?? session?.session_id ?? null,
+        checkoutUrl: session?.url ?? session?.checkout_url ?? data?.url ?? data?.checkout_url ?? null,
+        status: session?.payment_status ?? session?.status ?? 'pending',
+        amountTotal: Number(session?.amount_total ?? data?.amount_total ?? 0),
+        currency: session?.currency ?? data?.currency ?? 'usd',
+      };
+
+      set({
+        loadingPayment: false,
+        paymentStatus: 'ready',
+        lastTransaction: transaction,
+      });
+      return transaction;
+    } catch (err) {
+      set({ loadingPayment: false, paymentStatus: 'failed', error: err.message });
+      throw err;
+    }
+  },
+
+  fetchPaymentSession: async (sessionId) => {
+    if (!sessionId) {
+      throw new Error('Missing payment session id');
+    }
+
+    set({ loadingPayment: true, paymentStatus: 'checking', error: null });
+    try {
+      const response = await fetchApi(`/payments/session/${sessionId}`, {
+        method: 'GET',
+      });
+      const data = getPayload(response);
+      const session = data?.session || data;
+
+      const normalizedStatus = String(session?.payment_status || session?.status || '').toLowerCase();
+      const transaction = {
+        sessionId,
+        invoiceId: session?.metadata?.invoice_id ?? session?.invoice_id ?? data?.invoice_id ?? null,
+        status: normalizedStatus || 'unknown',
+        amountTotal: Number(session?.amount_total ?? data?.amount_total ?? 0),
+        currency: session?.currency ?? data?.currency ?? 'usd',
+        customerEmail: session?.customer_details?.email ?? session?.customer_email ?? null,
+        paymentDate: session?.created
+          ? new Date(session.created * 1000).toISOString()
+          : session?.payment_date ?? data?.payment_date ?? null,
+      };
+
+      set({
+        loadingPayment: false,
+        paymentStatus: normalizedStatus === 'paid' ? 'paid' : normalizedStatus || 'checked',
+        lastTransaction: transaction,
+      });
+      return transaction;
+    } catch (err) {
+      set({ loadingPayment: false, paymentStatus: 'failed', error: err.message });
+      throw err;
+    }
+  },
+
+  resetPaymentState: () => {
+    set({ loadingPayment: false, paymentStatus: 'idle', lastTransaction: null });
   },
 }));

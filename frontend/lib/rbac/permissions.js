@@ -49,6 +49,11 @@ export function canCreateInvoice(role) {
   return normalized === ADMIN_ROLE || normalized === INTERNAL_ROLE;
 }
 
+export function canTriggerInvoicePayment(role) {
+  const normalized = normalizeRole(role);
+  return normalized === ADMIN_ROLE || normalized === INTERNAL_ROLE;
+}
+
 export function canDeleteProduct(role) {
   return isAdmin(role);
 }
