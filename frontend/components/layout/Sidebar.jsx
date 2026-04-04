@@ -20,7 +20,8 @@ const menuItems = [
   { name: "Subscriptions", href: "/subscriptions", icon: CreditCard },
   { name: "Products", href: "/products", icon: Box },
   { name: "Reporting", href: "/reporting", icon: BarChart3 },
-  { name: "Users/Contacts", href: "/users", icon: Users },
+  { name: "Users", href: "/dashboard/users", icon: Users },
+  { name: "Contacts", href: "/dashboard/contacts", icon: Users },
   { name: "Configuration", href: "/configuration", icon: Settings, roles: ["admin"] },
   { name: "My Profile", href: "/profile", icon: UserCircle },
 ];
