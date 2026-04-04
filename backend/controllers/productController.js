@@ -1,5 +1,6 @@
 const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
+const { createApprovalRequest } = require("../utils/approvalService");
 
 const isPositiveNumber = (value) => {
   if (value === undefined || value === null || value === "") {
@@ -514,11 +515,40 @@ const deleteProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query("DELETE FROM products WHERE id = $1 RETURNING id, name", [id]);
-
-    if (result.rows.length === 0) {
+    const productResult = await pool.query("SELECT id, name FROM products WHERE id = $1", [id]);
+    if (productResult.rows.length === 0) {
       return sendError(res, 404, "Product not found.");
     }
+
+    if (req.user?.role === "internal") {
+      const reason = normalizeString(req.body?.reason) || "Requested permanent product deletion.";
+      const product = productResult.rows[0];
+
+      const { approval } = await createApprovalRequest({
+        userId: req.user.id,
+        actionType: "DELETE_PRODUCT",
+        entityType: "product",
+        entityId: id,
+        reason,
+        payload: {
+          source: "product_delete_endpoint",
+          product_name: product.name,
+        },
+      });
+
+      console.log(
+        `[AUDIT] approval_requested requester=${req.user.id} action=DELETE_PRODUCT entity=product:${id} approval=${approval.id}`
+      );
+
+      return sendSuccess(
+        res,
+        202,
+        { approval },
+        "Approval request created. Admin approval required to delete product."
+      );
+    }
+
+    const result = await pool.query("DELETE FROM products WHERE id = $1 RETURNING id, name", [id]);
 
     return sendSuccess(res, 200, { product: result.rows[0] }, "Product deleted successfully.");
   } catch (error) {

@@ -64,26 +64,48 @@ export const useApprovalStore = create((set, get) => ({
   },
 
   approveRequest: async (id) => {
-    const response = await fetchApi(`/approvals/${id}/approve`, { method: "POST" });
-    const data = getPayload(response);
-    if (data.approval) {
-      set((state) => ({
-        requests: state.requests.map((item) => (item.id === id ? data.approval : item)),
-        notification: { type: "success", message: "Approval approved" },
-      }));
+    try {
+      const response = await fetchApi(`/approvals/${id}/approve`, { method: "POST" });
+      const data = getPayload(response);
+      if (data.approval) {
+        set((state) => ({
+          requests: state.requests.map((item) => (item.id === id ? data.approval : item)),
+          notification: { type: "success", message: "Approval approved" },
+        }));
+      }
+      return data;
+    } catch (err) {
+      set({
+        error: err.message || "Failed to approve request",
+        notification: {
+          type: "error",
+          message: err.message || "Failed to approve request",
+        },
+      });
+      throw err;
     }
-    return data;
   },
 
   rejectRequest: async (id) => {
-    const response = await fetchApi(`/approvals/${id}/reject`, { method: "POST" });
-    const data = getPayload(response);
-    if (data.approval) {
-      set((state) => ({
-        requests: state.requests.map((item) => (item.id === id ? data.approval : item)),
-        notification: { type: "success", message: "Approval rejected" },
-      }));
+    try {
+      const response = await fetchApi(`/approvals/${id}/reject`, { method: "POST" });
+      const data = getPayload(response);
+      if (data.approval) {
+        set((state) => ({
+          requests: state.requests.map((item) => (item.id === id ? data.approval : item)),
+          notification: { type: "success", message: "Approval rejected" },
+        }));
+      }
+      return data;
+    } catch (err) {
+      set({
+        error: err.message || "Failed to reject request",
+        notification: {
+          type: "error",
+          message: err.message || "Failed to reject request",
+        },
+      });
+      throw err;
     }
-    return data;
   },
 }));

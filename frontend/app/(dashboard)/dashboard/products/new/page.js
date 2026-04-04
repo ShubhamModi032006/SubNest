@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDataStore } from "@/store/dataStore";
 import { useAuthStore } from "@/store/authStore";
+import { useApprovalStore } from "@/store/approvalStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ export default function CreateProductPage() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const { createProduct, plans, taxes, fetchPlans, fetchTaxes } = useDataStore();
+  const { createRequest } = useApprovalStore();
   
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -28,6 +30,7 @@ export default function CreateProductPage() {
   const [recurringPrices, setRecurringPrices] = useState([]);
   const [variants, setVariants] = useState([]);
   const canCreate = canCreateProduct(user?.role);
+  const isInternalUser = String(user?.role || "").toLowerCase() === "internal";
 
   if (!canCreate) {
     return (
@@ -74,7 +77,48 @@ export default function CreateProductPage() {
         }),
         variants
       };
-      await createProduct(payload);
+
+      if (isInternalUser) {
+        const approvalPayload = {
+          operation: "CREATE_PRODUCT",
+          product: {
+            name: payload.name,
+            type: String(payload.type || "").toLowerCase(),
+            sales_price: payload.salesPrice,
+            cost_price: payload.costPrice,
+            tax_id: payload.tax || null,
+            variants: (payload.variants || []).map((variant) => ({
+              attribute: variant.attribute,
+              value: variant.value,
+              extra_price: Number(variant.extraPrice ?? 0),
+            })),
+            recurring_prices: (payload.recurringPrices || []).map((row) => ({
+              plan_id: row.planId || null,
+              price: Number(row.price ?? 0),
+              min_quantity: Number(row.minQuantity ?? 1),
+              start_date: row.startDate || null,
+              end_date: row.endDate || null,
+            })),
+          },
+        };
+
+        await createRequest({
+          action_type: "MODIFY_PRICING",
+          entity_type: "product",
+          entity_id: crypto.randomUUID(),
+          reason: "Product creation request from internal workflow.",
+          payload: approvalPayload,
+        });
+
+        router.push("/dashboard/approvals");
+        return;
+      }
+
+      const result = await createProduct(payload);
+      if (result?.requiresApproval) {
+        router.push("/dashboard/approvals");
+        return;
+      }
       router.push("/dashboard/products");
     } catch (err) {
       setError(err?.message || "Failed to create product.");

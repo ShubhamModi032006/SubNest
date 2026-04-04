@@ -33,7 +33,10 @@ export async function fetchApi(endpoint, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.message || data.error || "Something went wrong");
+    const error = new Error(data.message || data.error || "Something went wrong");
+    error.status = response.status;
+    error.payload = data;
+    throw error;
   }
 
   return data;

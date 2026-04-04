@@ -15,7 +15,7 @@ router.get("/", protect, allowRoles("admin", "internal"), getProducts);
 router.post("/", protect, allowRoles("admin", "internal"), createProduct);
 router.get("/:id", protect, allowRoles("admin", "internal"), getProductById);
 router.put("/:id", protect, allowRoles("admin", "internal"), updateProduct);
-router.delete("/:id", protect, allowRoles("admin"), deleteProduct);
+router.delete("/:id", protect, allowRoles("admin", "internal"), deleteProduct);
 router.patch("/:id/archive", protect, allowRoles("admin", "internal"), archiveProduct);
 
 module.exports = router;

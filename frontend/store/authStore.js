@@ -65,9 +65,13 @@ export const useAuthStore = create(
           set({ user: data.user ?? data, isAuthenticated: true, loading: false });
           return data;
         } catch (err) {
-          // If token is invalid, log out
-          set({ user: null, token: null, isAuthenticated: false, error: 'Session expired', loading: false });
-          throw err;
+          if (err?.status === 401) {
+            set({ user: null, token: null, isAuthenticated: false, error: 'Session expired', loading: false });
+            throw err;
+          }
+
+          set({ loading: false, error: err.message || 'Failed to validate session' });
+          return null;
         }
       },
 

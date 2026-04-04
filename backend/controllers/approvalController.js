@@ -20,6 +20,37 @@ const withTransaction = async (handler) => {
 
 const normalizeText = (value) => (value === undefined || value === null ? null : String(value).trim());
 
+const validateApprovalCompatibility = ({ actionType, entityType, payload }) => {
+  if (actionType === "MODIFY_PRICING") {
+    if (!["product", "plan", "tax", "discount"].includes(entityType)) {
+      return "MODIFY_PRICING supports only product, plan, tax, or discount entities.";
+    }
+
+    if (entityType === "product") {
+      const operation = String(payload?.operation || "CREATE_PRODUCT").toUpperCase();
+      if (!["CREATE_PRODUCT", "UPDATE_PRODUCT"].includes(operation)) {
+        return "Product MODIFY_PRICING approval requires operation CREATE_PRODUCT or UPDATE_PRODUCT.";
+      }
+    }
+
+    return null;
+  }
+
+  if (actionType === "DELETE_PRODUCT" && entityType !== "product") {
+    return "DELETE_PRODUCT action requires entity_type product.";
+  }
+
+  if (actionType === "CANCEL_INVOICE" && entityType !== "invoice") {
+    return "CANCEL_INVOICE action requires entity_type invoice.";
+  }
+
+  if (actionType === "CLOSE_SUBSCRIPTION" && entityType !== "subscription") {
+    return "CLOSE_SUBSCRIPTION action requires entity_type subscription.";
+  }
+
+  return null;
+};
+
 const createApproval = async (req, res, next) => {
   try {
     const action_type = normalizeText(req.body.action_type);
@@ -38,6 +69,15 @@ const createApproval = async (req, res, next) => {
 
     if (!entity_id) {
       return sendError(res, 400, "entity_id is required.");
+    }
+
+    const compatibilityError = validateApprovalCompatibility({
+      actionType: action_type,
+      entityType: entity_type,
+      payload,
+    });
+    if (compatibilityError) {
+      return sendError(res, 400, compatibilityError);
     }
 
     const { approval, deduped } = await createApprovalRequest({
