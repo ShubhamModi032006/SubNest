@@ -5,7 +5,17 @@
 const { sendError } = require("../utils/apiResponse");
 
 const errorHandler = (err, req, res, next) => {
-  console.error("🔥 Error:", err.message);
+  const errorContext = {
+    timestamp: new Date().toISOString(),
+    method: req.method,
+    path: req.originalUrl,
+    userId: req.user?.id || null,
+    role: req.user?.role || null,
+    message: err.message,
+    code: err.code || null,
+    stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
+  };
+  console.error("🔥 Error:", errorContext);
 
   if (res.headersSent) {
     return next(err);

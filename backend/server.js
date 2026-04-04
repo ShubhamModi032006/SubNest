@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const { createTables } = require("./models/schema");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -14,7 +15,10 @@ const quotationTemplateRoutes = require("./routes/quotationTemplateRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const portalRoutes = require("./routes/portalRoutes");
+const searchRoutes = require("./routes/searchRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 const approvalRoutes = require("./routes/approvalRoutes");
+const { authRateLimiter, paymentRateLimiter } = require("./middlewares/rateLimiters");
 const { handleStripeWebhook } = require("./controllers/paymentController");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
 const { requestLogger } = require("./middlewares/requestLogger");
@@ -31,6 +35,11 @@ app.use(
     origin: "http://localhost:3000",
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  })
+);
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
   })
 );
 app.use(requestLogger);
@@ -60,7 +69,7 @@ app.get("/api/health", (req, res) => {
 // ─────────────────────────────────────────────
 // API Routes
 // ─────────────────────────────────────────────
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authRateLimiter, authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/products", productRoutes);
@@ -70,8 +79,10 @@ app.use("/api/discounts", discountRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/quotation-templates", quotationTemplateRoutes);
 app.use("/api/invoices", invoiceRoutes);
-app.use("/api/payments", paymentRoutes);
+app.use("/api/payments", paymentRateLimiter, paymentRoutes);
 app.use("/api", portalRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use("/api/approvals", approvalRoutes);
 
 // ─────────────────────────────────────────────
