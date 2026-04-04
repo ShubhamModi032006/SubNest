@@ -1,6 +1,8 @@
 const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
 const { createApprovalRequest } = require("../utils/approvalService");
+const { cached, invalidateTag, invalidateByPrefix } = require("../services/cacheService");
+const { logActivity } = require("../services/activityLogService");
 
 const isPositiveNumber = (value) => {
   if (value === undefined || value === null || value === "") {
@@ -185,50 +187,58 @@ const getProducts = async (req, res, next) => {
       LIMIT ${limitRef} OFFSET ${offsetRef}
     `;
 
-    const [productResult, countResult] = await Promise.all([
-      pool.query(productQuery, params),
-      pool.query(
-        `SELECT COUNT(*)::INT AS total FROM products p ${countWhere}`,
-        countParams
-      ),
-    ]);
+    const cacheKey = `products:${page}:${limit}:${search || "_"}:${includeArchived}`;
+    const data = await cached(
+      cacheKey,
+      async () => {
+        const [productResult, countResult] = await Promise.all([
+          pool.query(productQuery, params),
+          pool.query(
+            `SELECT COUNT(*)::INT AS total FROM products p ${countWhere}`,
+            countParams
+          ),
+        ]);
 
-    const productIds = productResult.rows.map((row) => row.id);
-    let variantRows = [];
-    let recurringRows = [];
+        const productIds = productResult.rows.map((row) => row.id);
+        let variantRows = [];
+        let recurringRows = [];
 
-    if (productIds.length > 0) {
-      const variantResult = await pool.query(
-        `SELECT id, product_id, attribute, value, extra_price
-         FROM product_variants
-         WHERE product_id = ANY($1::uuid[])`,
-        [productIds]
-      );
+        if (productIds.length > 0) {
+          const variantResult = await pool.query(
+            `SELECT id, product_id, attribute, value, extra_price
+             FROM product_variants
+             WHERE product_id = ANY($1::uuid[])`,
+            [productIds]
+          );
 
-      const recurringResult = await pool.query(
-        `SELECT id, product_id, plan_id, price, min_quantity, start_date, end_date
-         FROM product_recurring_prices
-         WHERE product_id = ANY($1::uuid[])`,
-        [productIds]
-      );
+          const recurringResult = await pool.query(
+            `SELECT id, product_id, plan_id, price, min_quantity, start_date, end_date
+             FROM product_recurring_prices
+             WHERE product_id = ANY($1::uuid[])`,
+            [productIds]
+          );
 
-      variantRows = variantResult.rows;
-      recurringRows = recurringResult.rows;
-    }
+          variantRows = variantResult.rows;
+          recurringRows = recurringResult.rows;
+        }
 
-    const products = mapProductRows(productResult.rows, variantRows, recurringRows);
-    const total = countResult.rows[0]?.total || 0;
+        const products = mapProductRows(productResult.rows, variantRows, recurringRows);
+        const total = countResult.rows[0]?.total || 0;
+        return { products, total };
+      },
+      { ttlMs: 60_000, tags: ["products", "search"] }
+    );
 
     return sendSuccess(
       res,
       200,
       {
-        products,
+        products: data.products,
         pagination: {
           page,
           limit,
-          total,
-          totalPages: Math.ceil(total / limit) || 1,
+          total: data.total,
+          totalPages: Math.ceil(data.total / limit) || 1,
         },
       },
       "Products fetched successfully."
@@ -353,6 +363,18 @@ const createProduct = async (req, res, next) => {
 
     const [product] = mapProductRows(fullProductResult.rows, variantResult.rows, recurringResult.rows);
 
+    invalidateTag("products");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("products:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "PRODUCT_CREATE",
+      entityType: "product",
+      entityId: product?.id,
+      metadata: { name: product?.name },
+    });
+
     return sendSuccess(res, 201, { product }, "Product created successfully.");
   } catch (error) {
     next(error);
@@ -363,32 +385,43 @@ const getProductById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const productResult = await pool.query(
-      `SELECT id, name, type, sales_price, cost_price, tax_id, is_archived, created_at
-       FROM products
-       WHERE id = $1`,
-      [id]
+    const product = await cached(
+      `product:${id}`,
+      async () => {
+        const productResult = await pool.query(
+          `SELECT id, name, type, sales_price, cost_price, tax_id, is_archived, created_at
+           FROM products
+           WHERE id = $1`,
+          [id]
+        );
+
+        if (productResult.rows.length === 0) {
+          return null;
+        }
+
+        const variantResult = await pool.query(
+          `SELECT id, product_id, attribute, value, extra_price
+           FROM product_variants
+           WHERE product_id = $1`,
+          [id]
+        );
+
+        const recurringResult = await pool.query(
+          `SELECT id, product_id, plan_id, price, min_quantity, start_date, end_date
+           FROM product_recurring_prices
+           WHERE product_id = $1`,
+          [id]
+        );
+
+        const [mapped] = mapProductRows(productResult.rows, variantResult.rows, recurringResult.rows);
+        return mapped || null;
+      },
+      { ttlMs: 60_000, tags: ["products"] }
     );
 
-    if (productResult.rows.length === 0) {
+    if (!product) {
       return sendError(res, 404, "Product not found.");
     }
-
-    const variantResult = await pool.query(
-      `SELECT id, product_id, attribute, value, extra_price
-       FROM product_variants
-       WHERE product_id = $1`,
-      [id]
-    );
-
-    const recurringResult = await pool.query(
-      `SELECT id, product_id, plan_id, price, min_quantity, start_date, end_date
-       FROM product_recurring_prices
-       WHERE product_id = $1`,
-      [id]
-    );
-
-    const [product] = mapProductRows(productResult.rows, variantResult.rows, recurringResult.rows);
 
     return sendSuccess(res, 200, { product }, "Product fetched successfully.");
   } catch (error) {
@@ -505,6 +538,18 @@ const updateProduct = async (req, res, next) => {
       }
     });
 
+    invalidateTag("products");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("products:");
+    invalidateByPrefix("product:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "PRODUCT_UPDATE",
+      entityType: "product",
+      entityId: id,
+    });
+
     return getProductById(req, res, next);
   } catch (error) {
     next(error);
@@ -550,6 +595,19 @@ const deleteProduct = async (req, res, next) => {
 
     const result = await pool.query("DELETE FROM products WHERE id = $1 RETURNING id, name", [id]);
 
+    invalidateTag("products");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("products:");
+    invalidateByPrefix("product:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "PRODUCT_DELETE",
+      entityType: "product",
+      entityId: id,
+      metadata: { name: result.rows[0]?.name },
+    });
+
     return sendSuccess(res, 200, { product: result.rows[0] }, "Product deleted successfully.");
   } catch (error) {
     next(error);
@@ -570,6 +628,18 @@ const archiveProduct = async (req, res, next) => {
     if (result.rows.length === 0) {
       return sendError(res, 404, "Product not found.");
     }
+
+    invalidateTag("products");
+    invalidateTag("search");
+    invalidateByPrefix("products:");
+    invalidateByPrefix("product:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "PRODUCT_ARCHIVE_TOGGLE",
+      entityType: "product",
+      entityId: id,
+      metadata: { is_archived: result.rows[0]?.is_archived },
+    });
 
     return sendSuccess(res, 200, { product: result.rows[0] }, "Product archive status updated.");
   } catch (error) {

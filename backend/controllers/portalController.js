@@ -9,6 +9,9 @@ const {
   searchProducts,
   calculatePortalPricing,
 } = require("../utils/portalCatalog");
+const { cached, invalidateTag, invalidateByPrefix } = require("../services/cacheService");
+const { logActivity } = require("../services/activityLogService");
+const { createNotification } = require("../services/notificationService");
 
 const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -485,6 +488,26 @@ const createOrder = async (req, res, next) => {
       return sendSuccess(res, 200, { order: result.order }, "Duplicate order prevented. Existing order returned.");
     }
 
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("reports:");
+    await logActivity({
+      userId,
+      action: "ORDER_CREATE",
+      entityType: "order",
+      entityId: result.order?.id,
+      metadata: {
+        invoiceId: result.invoice?.id,
+        subscriptionId: result.subscription?.id,
+        totalAmount: result.order?.totalAmount,
+      },
+    });
+    await createNotification({
+      userId,
+      type: "order",
+      message: `Order ${result.order?.orderNumber || ""} created successfully.`,
+    });
+
     return sendSuccess(
       res,
       201,
@@ -595,26 +618,34 @@ const getMyInvoices = async (req, res, next) => {
 
 const getReportsSummary = async (req, res, next) => {
   try {
-    const [revenueResult, activeSubscriptionsResult, overdueInvoicesResult] = await Promise.all([
-      pool.query(`SELECT COALESCE(SUM(grand_total), 0)::NUMERIC AS revenue FROM invoices WHERE status = 'paid'`),
-      pool.query(`SELECT COUNT(*)::INT AS active_subscriptions FROM subscriptions WHERE status = 'active'`),
-      pool.query(
-        `SELECT COUNT(*)::INT AS overdue_invoices
-         FROM invoices
-         WHERE status IN ('draft', 'confirmed')
-           AND due_date < CURRENT_DATE`
-      ),
-    ]);
+    const summary = await cached(
+      "reports:summary",
+      async () => {
+        const [revenueResult, activeSubscriptionsResult, overdueInvoicesResult] = await Promise.all([
+          pool.query(`SELECT COALESCE(SUM(grand_total), 0)::NUMERIC AS revenue FROM invoices WHERE status = 'paid'`),
+          pool.query(`SELECT COUNT(*)::INT AS active_subscriptions FROM subscriptions WHERE status = 'active'`),
+          pool.query(
+            `SELECT COUNT(*)::INT AS overdue_invoices
+             FROM invoices
+             WHERE status IN ('draft', 'confirmed')
+               AND due_date < CURRENT_DATE`
+          ),
+        ]);
+
+        return {
+          totalRevenue: Number(revenueResult.rows[0]?.revenue || 0),
+          activeSubscriptions: Number(activeSubscriptionsResult.rows[0]?.active_subscriptions || 0),
+          overdueInvoices: Number(overdueInvoicesResult.rows[0]?.overdue_invoices || 0),
+        };
+      },
+      { ttlMs: 60_000, tags: ["reports"] }
+    );
 
     return sendSuccess(
       res,
       200,
       {
-        summary: {
-          totalRevenue: Number(revenueResult.rows[0]?.revenue || 0),
-          activeSubscriptions: Number(activeSubscriptionsResult.rows[0]?.active_subscriptions || 0),
-          overdueInvoices: Number(overdueInvoicesResult.rows[0]?.overdue_invoices || 0),
-        },
+        summary,
       },
       "Report summary fetched successfully."
     );
@@ -625,32 +656,40 @@ const getReportsSummary = async (req, res, next) => {
 
 const getRevenueTrend = async (req, res, next) => {
   try {
-    const result = await pool.query(
-      `SELECT DATE_TRUNC('month', invoice_date)::date AS month, COALESCE(SUM(grand_total), 0)::NUMERIC AS revenue
-       FROM invoices
-       WHERE status = 'paid'
-         AND invoice_date >= (CURRENT_DATE - INTERVAL '5 months')
-       GROUP BY 1
-       ORDER BY 1 ASC`
+    const months = await cached(
+      "reports:revenue-trend",
+      async () => {
+        const result = await pool.query(
+          `SELECT DATE_TRUNC('month', invoice_date)::date AS month, COALESCE(SUM(grand_total), 0)::NUMERIC AS revenue
+           FROM invoices
+           WHERE status = 'paid'
+             AND invoice_date >= (CURRENT_DATE - INTERVAL '5 months')
+           GROUP BY 1
+           ORDER BY 1 ASC`
+        );
+
+        const trend = [];
+        for (let index = 5; index >= 0; index -= 1) {
+          const date = new Date();
+          date.setMonth(date.getMonth() - index);
+          trend.push({
+            label: date.toLocaleString("en-US", { month: "short" }),
+            value: 0,
+          });
+        }
+
+        for (const row of result.rows) {
+          const rowDate = new Date(row.month);
+          const monthIndex = trend.findIndex((item) => item.label === rowDate.toLocaleString("en-US", { month: "short" }));
+          if (monthIndex >= 0) {
+            trend[monthIndex].value = Number(row.revenue || 0);
+          }
+        }
+
+        return trend;
+      },
+      { ttlMs: 60_000, tags: ["reports"] }
     );
-
-    const months = [];
-    for (let index = 5; index >= 0; index -= 1) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - index);
-      months.push({
-        label: date.toLocaleString("en-US", { month: "short" }),
-        value: 0,
-      });
-    }
-
-    for (const row of result.rows) {
-      const rowDate = new Date(row.month);
-      const monthIndex = months.findIndex((item) => item.label === rowDate.toLocaleString("en-US", { month: "short" }));
-      if (monthIndex >= 0) {
-        months[monthIndex].value = Number(row.revenue || 0);
-      }
-    }
 
     return sendSuccess(res, 200, { trend: months }, "Revenue trend fetched successfully.");
   } catch (error) {
@@ -660,22 +699,27 @@ const getRevenueTrend = async (req, res, next) => {
 
 const getSubscriptionStats = async (req, res, next) => {
   try {
-    const result = await pool.query(
-      `SELECT status, COUNT(*)::INT AS total
-       FROM subscriptions
-       GROUP BY status
-       ORDER BY status ASC`
+    const stats = await cached(
+      "reports:subscription-stats",
+      async () => {
+        const result = await pool.query(
+          `SELECT status, COUNT(*)::INT AS total
+           FROM subscriptions
+           GROUP BY status
+           ORDER BY status ASC`
+        );
+        return result.rows.map((row) => ({
+          status: row.status,
+          total: Number(row.total),
+        }));
+      },
+      { ttlMs: 60_000, tags: ["reports"] }
     );
 
     return sendSuccess(
       res,
       200,
-      {
-        stats: result.rows.map((row) => ({
-          status: row.status,
-          total: Number(row.total),
-        })),
-      },
+      { stats },
       "Subscription stats fetched successfully."
     );
   } catch (error) {

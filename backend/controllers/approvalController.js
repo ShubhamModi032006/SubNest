@@ -2,6 +2,9 @@ const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
 const { ACTION_TYPES, ENTITY_TYPES, createApprovalRequest } = require("../utils/approvalService");
 const { executeApprovedAction } = require("../services/approvalExecutionService");
+const { logActivity } = require("../services/activityLogService");
+const { createNotification, createNotificationForRoles } = require("../services/notificationService");
+const { invalidateTag } = require("../services/cacheService");
 
 const withTransaction = async (handler) => {
   const client = await pool.connect();
@@ -93,6 +96,19 @@ const createApproval = async (req, res, next) => {
       `[AUDIT] approval_requested requester=${req.user.id} action=${action_type} entity=${entity_type}:${entity_id} approval=${approval.id}`
     );
 
+    await logActivity({
+      userId: req.user.id,
+      action: "APPROVAL_REQUESTED",
+      entityType: "approval",
+      entityId: approval.id,
+      metadata: { actionType: action_type, entityType: entity_type, entityId: entity_id },
+    });
+    await createNotificationForRoles({
+      roles: ["admin"],
+      type: "approval",
+      message: `New approval request (${action_type}) pending review.`,
+    });
+
     return sendSuccess(
       res,
       deduped ? 200 : 201,
@@ -174,6 +190,25 @@ const approveApproval = async (req, res, next) => {
       `[AUDIT] approval_approved reviewer=${req.user.id} approval=${result.approval.id} action=${result.approval.action_type} entity=${result.approval.entity_type}:${result.approval.entity_id}`
     );
 
+    invalidateTag("reports");
+    invalidateTag("search");
+    await logActivity({
+      userId: req.user.id,
+      action: "APPROVAL_APPROVED",
+      entityType: "approval",
+      entityId: result.approval.id,
+      metadata: {
+        actionType: result.approval.action_type,
+        entityType: result.approval.entity_type,
+        entityId: result.approval.entity_id,
+      },
+    });
+    await createNotification({
+      userId: result.approval.user_id,
+      type: "approval",
+      message: `Your approval request for ${result.approval.action_type} was approved.`,
+    });
+
     return sendSuccess(res, 200, result, "Approval approved and action executed successfully.");
   } catch (error) {
     next(error);
@@ -197,6 +232,23 @@ const rejectApproval = async (req, res, next) => {
     console.log(
       `[AUDIT] approval_rejected reviewer=${req.user.id} approval=${result.rows[0].id} action=${result.rows[0].action_type} entity=${result.rows[0].entity_type}:${result.rows[0].entity_id}`
     );
+
+    await logActivity({
+      userId: req.user.id,
+      action: "APPROVAL_REJECTED",
+      entityType: "approval",
+      entityId: result.rows[0].id,
+      metadata: {
+        actionType: result.rows[0].action_type,
+        entityType: result.rows[0].entity_type,
+        entityId: result.rows[0].entity_id,
+      },
+    });
+    await createNotification({
+      userId: result.rows[0].user_id,
+      type: "approval",
+      message: `Your approval request for ${result.rows[0].action_type} was rejected.`,
+    });
 
     return sendSuccess(res, 200, { approval: result.rows[0] }, "Approval rejected successfully.");
   } catch (error) {

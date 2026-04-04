@@ -1,6 +1,9 @@
 const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
 const { createApprovalRequest } = require("../utils/approvalService");
+const { cached, invalidateTag, invalidateByPrefix } = require("../services/cacheService");
+const { logActivity } = require("../services/activityLogService");
+const { createNotification, createNotificationForRoles } = require("../services/notificationService");
 
 const INVOICE_STATUSES = ["draft", "confirmed", "paid", "cancelled"];
 
@@ -207,6 +210,10 @@ const createInvoiceFromSubscriptionInternal = async (subscriptionId) => {
       values
     );
 
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("invoice:");
+    invalidateByPrefix("invoices:");
     return invoiceId;
   });
 };
@@ -225,18 +232,25 @@ const getInvoices = async (req, res, next) => {
       whereClause = `WHERE i.status = $${params.length}`;
     }
 
-    const result = await pool.query(
-      `SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.status, i.grand_total, i.paid_at, i.customer_type,
-              u.name AS user_name, c.name AS contact_name
-       FROM invoices i
-       LEFT JOIN users u ON i.customer_user_id = u.id
-       LEFT JOIN contacts c ON i.customer_contact_id = c.id
-       ${whereClause}
-       ORDER BY i.created_at DESC`,
-      params
+    const resultRows = await cached(
+      `invoices:${status || "_"}`,
+      async () => {
+        const result = await pool.query(
+          `SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.status, i.grand_total, i.paid_at, i.customer_type,
+                  u.name AS user_name, c.name AS contact_name
+           FROM invoices i
+           LEFT JOIN users u ON i.customer_user_id = u.id
+           LEFT JOIN contacts c ON i.customer_contact_id = c.id
+           ${whereClause}
+           ORDER BY i.created_at DESC`,
+          params
+        );
+        return result.rows;
+      },
+      { ttlMs: 60_000, tags: ["reports", "search"] }
     );
 
-    const invoices = result.rows.map((row) => ({
+    const invoices = resultRows.map((row) => ({
       id: row.id,
       invoice_number: row.invoice_number,
       customer: row.customer_type === "user" ? row.user_name : row.contact_name,
@@ -256,7 +270,11 @@ const getInvoices = async (req, res, next) => {
 
 const getInvoiceById = async (req, res, next) => {
   try {
-    const invoice = await hydrateInvoice(req.params.id);
+    const invoice = await cached(
+      `invoice:${req.params.id}`,
+      async () => hydrateInvoice(req.params.id),
+      { ttlMs: 60_000, tags: ["reports", "search"] }
+    );
     if (!invoice) {
       return sendError(res, 404, "Invoice not found.");
     }
@@ -293,6 +311,11 @@ const updateStatus = async (invoiceId, nextStatus, allowedCurrentStatuses, times
 const confirmInvoice = async (req, res, next) => {
   try {
     await updateStatus(req.params.id, "confirmed", ["draft"], "confirmed_at");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("invoice:");
+    invalidateByPrefix("invoices:");
+    await logActivity({ userId: req.user?.id, action: "INVOICE_CONFIRMED", entityType: "invoice", entityId: req.params.id });
     return sendSuccess(res, 200, {}, "Invoice confirmed successfully.");
   } catch (error) {
     next(error);
@@ -302,6 +325,11 @@ const confirmInvoice = async (req, res, next) => {
 const sendInvoice = async (req, res, next) => {
   try {
     await updateStatus(req.params.id, "confirmed", ["draft", "confirmed"], "sent_at");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("invoice:");
+    invalidateByPrefix("invoices:");
+    await logActivity({ userId: req.user?.id, action: "INVOICE_SENT", entityType: "invoice", entityId: req.params.id });
     return sendSuccess(res, 200, {}, "Invoice sent successfully.");
   } catch (error) {
     next(error);
@@ -332,6 +360,12 @@ const cancelInvoice = async (req, res, next) => {
         `[AUDIT] approval_requested requester=${req.user.id} action=CANCEL_INVOICE entity=invoice:${req.params.id} approval=${approval.id}`
       );
 
+      await createNotificationForRoles({
+        roles: ["admin"],
+        type: "approval",
+        message: `Approval requested to cancel confirmed invoice ${req.params.id}.`,
+      });
+
       return sendSuccess(
         res,
         202,
@@ -341,6 +375,11 @@ const cancelInvoice = async (req, res, next) => {
     }
 
     await updateStatus(req.params.id, "cancelled", ["draft", "confirmed"], "cancelled_at");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("invoice:");
+    invalidateByPrefix("invoices:");
+    await logActivity({ userId: req.user?.id, action: "INVOICE_CANCELLED", entityType: "invoice", entityId: req.params.id });
     return sendSuccess(res, 200, {}, "Invoice cancelled successfully.");
   } catch (error) {
     next(error);
@@ -351,6 +390,20 @@ const createInvoiceFromSubscription = async (req, res, next) => {
   try {
     const invoiceId = await createInvoiceFromSubscriptionInternal(req.params.id);
     const invoice = await hydrateInvoice(invoiceId);
+    await logActivity({
+      userId: req.user?.id,
+      action: "INVOICE_CREATED",
+      entityType: "invoice",
+      entityId: invoiceId,
+      metadata: { subscriptionId: req.params.id },
+    });
+    if (invoice?.customer?.id) {
+      await createNotification({
+        userId: invoice.customer.id,
+        type: "invoice",
+        message: `Invoice ${invoice.invoice_number} generated for your subscription.`,
+      });
+    }
     return sendSuccess(res, 201, { invoice }, "Invoice generated from subscription successfully.");
   } catch (error) {
     next(error);

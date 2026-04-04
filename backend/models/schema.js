@@ -325,6 +325,29 @@ const createTables = async () => {
     );
   `;
 
+  const createActivityLogsTable = `
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      action VARCHAR(120) NOT NULL,
+      entity_type VARCHAR(60) NOT NULL,
+      entity_id VARCHAR(120),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  const createNotificationsTable = `
+    CREATE TABLE IF NOT EXISTS notifications (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      type VARCHAR(20) NOT NULL DEFAULT 'info' CHECK (type IN ('success', 'error', 'warning', 'info')),
+      read_status BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
   const createUsersEmailIndex = `
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
   `;
@@ -461,6 +484,22 @@ const createTables = async () => {
     CREATE INDEX IF NOT EXISTS idx_approvals_entity ON approvals(entity_type, entity_id);
   `;
 
+  const createActivityLogsUserIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
+  `;
+
+  const createActivityLogsCreatedAtIndex = `
+    CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at DESC);
+  `;
+
+  const createNotificationsUserIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+  `;
+
+  const createNotificationsReadStatusIndex = `
+    CREATE INDEX IF NOT EXISTS idx_notifications_read_status ON notifications(read_status);
+  `;
+
   try {
     await pool.query(createPgcryptoExtension);
     console.log("✅ Extension pgcrypto ready");
@@ -528,6 +567,12 @@ const createTables = async () => {
     await pool.query(createApprovalsTable);
     console.log("✅ Approvals table ready");
 
+    await pool.query(createActivityLogsTable);
+    console.log("✅ Activity logs table ready");
+
+    await pool.query(createNotificationsTable);
+    console.log("✅ Notifications table ready");
+
     await pool.query(createDiscountsTable);
     console.log("✅ Discounts table ready");
 
@@ -560,6 +605,10 @@ const createTables = async () => {
     await pool.query(createApprovalsStatusIndex);
     await pool.query(createApprovalsUserIdIndex);
     await pool.query(createApprovalsEntityIndex);
+    await pool.query(createActivityLogsUserIdIndex);
+    await pool.query(createActivityLogsCreatedAtIndex);
+    await pool.query(createNotificationsUserIdIndex);
+    await pool.query(createNotificationsReadStatusIndex);
     await pool.query(createTaxesNameIndex);
     await pool.query(createPlansNameIndex);
     await pool.query(createDiscountsNameIndex);

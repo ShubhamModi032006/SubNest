@@ -1,6 +1,9 @@
 const Stripe = require("stripe");
 const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
+const { logActivity } = require("../services/activityLogService");
+const { createNotification } = require("../services/notificationService");
+const { invalidateTag, invalidateByPrefix } = require("../services/cacheService");
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -157,6 +160,17 @@ const createPaymentSession = async (req, res, next) => {
         [invoiceId, Number(invoice.grand_total), session.id]
       );
 
+      await logActivity(
+        {
+          userId: invoice.customer_id || invoice.customer_user_id,
+          action: "PAYMENT_SESSION_CREATE",
+          entityType: "payment",
+          entityId: session.id,
+          metadata: { invoiceId, amount: Number(invoice.grand_total) },
+        },
+        client
+      );
+
       return {
         id: session.id,
         url: session.url,
@@ -177,9 +191,10 @@ const createPaymentSession = async (req, res, next) => {
 const markPaymentFailed = async (sessionId) => {
   return withTransaction(async (client) => {
     const paymentResult = await client.query(
-      `SELECT id, status
-       FROM payments
-       WHERE stripe_session_id = $1
+      `SELECT p.id, p.status, p.invoice_id, i.customer_id, i.customer_user_id
+       FROM payments p
+       JOIN invoices i ON i.id = p.invoice_id
+       WHERE p.stripe_session_id = $1
        FOR UPDATE`,
       [sessionId]
     );
@@ -194,6 +209,24 @@ const markPaymentFailed = async (sessionId) => {
     }
 
     await client.query("UPDATE payments SET status = 'failed' WHERE id = $1", [payment.id]);
+    await logActivity(
+      {
+        userId: payment.customer_id || payment.customer_user_id,
+        action: "PAYMENT_FAILED",
+        entityType: "payment",
+        entityId: payment.id,
+        metadata: { sessionId, invoiceId: payment.invoice_id },
+      },
+      client
+    );
+    await createNotification(
+      {
+        userId: payment.customer_id || payment.customer_user_id,
+        type: "payment",
+        message: "Payment failed. Please retry checkout.",
+      },
+      client
+    );
     return payment;
   });
 };
@@ -201,7 +234,7 @@ const markPaymentFailed = async (sessionId) => {
 const settlePaymentSuccess = async (sessionId) => {
   return withTransaction(async (client) => {
     const paymentResult = await client.query(
-      `SELECT p.id, p.invoice_id, p.status, i.subscription_id
+      `SELECT p.id, p.invoice_id, p.status, i.subscription_id, i.customer_id, i.customer_user_id, i.invoice_number
        FROM payments p
        JOIN invoices i ON i.id = p.invoice_id
        WHERE p.stripe_session_id = $1
@@ -243,6 +276,29 @@ const settlePaymentSuccess = async (sessionId) => {
       [payment.invoice_id]
     );
 
+    await logActivity(
+      {
+        userId: payment.customer_id || payment.customer_user_id,
+        action: "PAYMENT_SUCCESS",
+        entityType: "payment",
+        entityId: payment.id,
+        metadata: {
+          sessionId,
+          invoiceId: payment.invoice_id,
+          subscriptionId: payment.subscription_id,
+        },
+      },
+      client
+    );
+    await createNotification(
+      {
+        userId: payment.customer_id || payment.customer_user_id,
+        type: "payment",
+        message: `Payment received for invoice ${payment.invoice_number || payment.invoice_id}.`,
+      },
+      client
+    );
+
     return payment;
   });
 };
@@ -270,11 +326,17 @@ const handleStripeWebhook = async (req, res, next) => {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       await settlePaymentSuccess(session.id);
+      invalidateTag("reports");
+      invalidateTag("search");
+      invalidateByPrefix("reports:");
     }
 
     if (event.type === "checkout.session.expired" || event.type === "checkout.session.async_payment_failed") {
       const session = event.data.object;
       await markPaymentFailed(session.id);
+      invalidateTag("reports");
+      invalidateTag("search");
+      invalidateByPrefix("reports:");
     }
 
     return sendSuccess(res, 200, { received: true }, "Webhook processed.");
@@ -295,6 +357,10 @@ const completePaymentSession = async (req, res, next) => {
       return sendError(res, 404, "Payment session not found.");
     }
 
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("reports:");
+
     return sendSuccess(res, 200, { payment }, "Payment session completed.");
   } catch (error) {
     next(error);
@@ -312,6 +378,10 @@ const failPaymentSession = async (req, res, next) => {
     if (!payment) {
       return sendError(res, 404, "Payment session not found.");
     }
+
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("reports:");
 
     return sendSuccess(res, 200, { payment }, "Payment session marked as failed.");
   } catch (error) {

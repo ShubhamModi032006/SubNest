@@ -1,5 +1,7 @@
 const pool = require("../models/db");
 const { sendSuccess, sendError } = require("../utils/apiResponse");
+const { cached, invalidateTag, invalidateByPrefix } = require("../services/cacheService");
+const { logActivity } = require("../services/activityLogService");
 
 const isPositiveNumber = (value) => {
   const numeric = Number(value);
@@ -99,31 +101,42 @@ const getPlans = async (req, res, next) => {
     params.push(offset);
     const offsetRef = `$${params.length}`;
 
-    const [planResult, countResult] = await Promise.all([
-      pool.query(
-        `SELECT id, name, billing_period, price, min_quantity, start_date, end_date, auto_close, closable, renewable, pausable, created_at
-         FROM plans
-         ${whereClause}
-         ORDER BY created_at DESC
-         LIMIT ${limitRef} OFFSET ${offsetRef}`,
-        params
-      ),
-      pool.query(
-        `SELECT COUNT(*)::INT AS total FROM plans ${whereClause}`,
-        search ? [`%${search}%`] : []
-      ),
-    ]);
+    const data = await cached(
+      `plans:${page}:${limit}:${search || "_"}`,
+      async () => {
+        const [planResult, countResult] = await Promise.all([
+          pool.query(
+            `SELECT id, name, billing_period, price, min_quantity, start_date, end_date, auto_close, closable, renewable, pausable, created_at
+             FROM plans
+             ${whereClause}
+             ORDER BY created_at DESC
+             LIMIT ${limitRef} OFFSET ${offsetRef}`,
+            params
+          ),
+          pool.query(
+            `SELECT COUNT(*)::INT AS total FROM plans ${whereClause}`,
+            search ? [`%${search}%`] : []
+          ),
+        ]);
+
+        return {
+          plans: planResult.rows,
+          total: countResult.rows[0]?.total || 0,
+        };
+      },
+      { ttlMs: 60_000, tags: ["plans", "search"] }
+    );
 
     return sendSuccess(
       res,
       200,
       {
-        plans: planResult.rows,
+        plans: data.plans,
         pagination: {
           page,
           limit,
-          total: countResult.rows[0]?.total || 0,
-          totalPages: Math.ceil((countResult.rows[0]?.total || 0) / limit) || 1,
+          total: data.total,
+          totalPages: Math.ceil((data.total || 0) / limit) || 1,
         },
       },
       "Plans fetched successfully."
@@ -158,6 +171,19 @@ const createPlan = async (req, res, next) => {
       ]
     );
 
+    invalidateTag("plans");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("plans:");
+    invalidateByPrefix("plan:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "PLAN_CREATE",
+      entityType: "plan",
+      entityId: result.rows[0]?.id,
+      metadata: { name: result.rows[0]?.name },
+    });
+
     return sendSuccess(res, 201, { plan: result.rows[0] }, "Plan created successfully.");
   } catch (error) {
     next(error);
@@ -166,18 +192,25 @@ const createPlan = async (req, res, next) => {
 
 const getPlanById = async (req, res, next) => {
   try {
-    const result = await pool.query(
-      `SELECT id, name, billing_period, price, min_quantity, start_date, end_date, auto_close, closable, renewable, pausable, created_at
-       FROM plans
-       WHERE id = $1`,
-      [req.params.id]
+    const plan = await cached(
+      `plan:${req.params.id}`,
+      async () => {
+        const result = await pool.query(
+          `SELECT id, name, billing_period, price, min_quantity, start_date, end_date, auto_close, closable, renewable, pausable, created_at
+           FROM plans
+           WHERE id = $1`,
+          [req.params.id]
+        );
+        return result.rows[0] || null;
+      },
+      { ttlMs: 60_000, tags: ["plans"] }
     );
 
-    if (result.rows.length === 0) {
+    if (!plan) {
       return sendError(res, 404, "Plan not found.");
     }
 
-    return sendSuccess(res, 200, { plan: result.rows[0] }, "Plan fetched successfully.");
+    return sendSuccess(res, 200, { plan }, "Plan fetched successfully.");
   } catch (error) {
     next(error);
   }
@@ -224,6 +257,19 @@ const updatePlan = async (req, res, next) => {
       ]
     );
 
+    invalidateTag("plans");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("plans:");
+    invalidateByPrefix("plan:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "PLAN_UPDATE",
+      entityType: "plan",
+      entityId: req.params.id,
+      metadata: { name: result.rows[0]?.name },
+    });
+
     return sendSuccess(res, 200, { plan: result.rows[0] }, "Plan updated successfully.");
   } catch (error) {
     next(error);
@@ -236,6 +282,19 @@ const deletePlan = async (req, res, next) => {
     if (result.rows.length === 0) {
       return sendError(res, 404, "Plan not found.");
     }
+
+    invalidateTag("plans");
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("plans:");
+    invalidateByPrefix("plan:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "PLAN_DELETE",
+      entityType: "plan",
+      entityId: req.params.id,
+      metadata: { name: result.rows[0]?.name },
+    });
 
     return sendSuccess(res, 200, { plan: result.rows[0] }, "Plan deleted successfully.");
   } catch (error) {

@@ -3,6 +3,9 @@ const { sendSuccess, sendError } = require("../utils/apiResponse");
 const { generateSubscriptionNumber, calculateSubscriptionLine } = require("../utils/subscriptionPricing");
 const { createInvoiceFromSubscriptionInternal } = require("./invoiceController");
 const { createApprovalRequest } = require("../utils/approvalService");
+const { cached, invalidateTag, invalidateByPrefix } = require("../services/cacheService");
+const { logActivity } = require("../services/activityLogService");
+const { createNotification, createNotificationForRoles } = require("../services/notificationService");
 
 const ALLOWED_STATUSES = ["draft", "quotation", "confirmed", "active", "closed"];
 
@@ -454,6 +457,24 @@ const createSubscription = async (req, res, next) => {
     });
 
     const hydrated = await hydrateSubscription(subscription.id);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("subscriptions:");
+    invalidateByPrefix("subscription:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "SUBSCRIPTION_CREATE",
+      entityType: "subscription",
+      entityId: subscription.id,
+      metadata: { customerId: hydrated?.customer_id, planId: hydrated?.plan?.id },
+    });
+    if (hydrated?.customer_id) {
+      await createNotification({
+        userId: hydrated.customer_id,
+        type: "subscription",
+        message: `Subscription ${hydrated.subscription_number} created successfully.`,
+      });
+    }
     return sendSuccess(res, 201, { subscription: hydrated }, "Subscription created successfully.");
   } catch (error) {
     next(error);
@@ -501,25 +522,36 @@ const getSubscriptions = async (req, res, next) => {
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const countParams = params.slice(0, params.length - 2);
 
-    const [subscriptionResult, countResult] = await Promise.all([
-      pool.query(
-        `SELECT s.id, s.subscription_number, s.customer_user_id, s.customer_contact_id, s.customer_type, s.plan_id, s.start_date, s.expiration_date, s.payment_terms, s.status, s.created_at,
-                u.name AS user_name, u.email AS user_email,
-                c.name AS contact_name, c.email AS contact_email,
-                p.name AS plan_name
-         FROM subscriptions s
-         LEFT JOIN users u ON s.customer_user_id = u.id
-         LEFT JOIN contacts c ON s.customer_contact_id = c.id
-         LEFT JOIN plans p ON s.plan_id = p.id
-         ${whereClause}
-         ORDER BY s.created_at DESC
-         LIMIT ${limitRef} OFFSET ${offsetRef}`,
-        params
-      ),
-      pool.query(`SELECT COUNT(*)::INT AS total FROM subscriptions s ${whereClause}`, countParams),
-    ]);
+    const data = await cached(
+      `subscriptions:${page}:${limit}:${status || "_"}:${customerId || "_"}:${customerType || "_"}`,
+      async () => {
+        const [subscriptionResult, countResult] = await Promise.all([
+          pool.query(
+            `SELECT s.id, s.subscription_number, s.customer_user_id, s.customer_contact_id, s.customer_type, s.plan_id, s.start_date, s.expiration_date, s.payment_terms, s.status, s.created_at,
+                    u.name AS user_name, u.email AS user_email,
+                    c.name AS contact_name, c.email AS contact_email,
+                    p.name AS plan_name
+             FROM subscriptions s
+             LEFT JOIN users u ON s.customer_user_id = u.id
+             LEFT JOIN contacts c ON s.customer_contact_id = c.id
+             LEFT JOIN plans p ON s.plan_id = p.id
+             ${whereClause}
+             ORDER BY s.created_at DESC
+             LIMIT ${limitRef} OFFSET ${offsetRef}`,
+            params
+          ),
+          pool.query(`SELECT COUNT(*)::INT AS total FROM subscriptions s ${whereClause}`, countParams),
+        ]);
 
-    const subscriptions = subscriptionResult.rows.map((row) => ({
+        return {
+          rows: subscriptionResult.rows,
+          total: countResult.rows[0]?.total || 0,
+        };
+      },
+      { ttlMs: 60_000, tags: ["reports", "search"] }
+    );
+
+    const subscriptions = data.rows.map((row) => ({
       id: row.id,
       subscription_number: row.subscription_number,
       customer_id: row.customer_type === "user" ? row.customer_user_id : row.customer_contact_id,
@@ -544,8 +576,8 @@ const getSubscriptions = async (req, res, next) => {
         pagination: {
           page,
           limit,
-          total: countResult.rows[0]?.total || 0,
-          totalPages: Math.ceil((countResult.rows[0]?.total || 0) / limit) || 1,
+          total: data.total,
+          totalPages: Math.ceil((data.total || 0) / limit) || 1,
         },
       },
       "Subscriptions fetched successfully."
@@ -557,7 +589,11 @@ const getSubscriptions = async (req, res, next) => {
 
 const getSubscriptionById = async (req, res, next) => {
   try {
-    const subscription = await hydrateSubscription(req.params.id);
+    const subscription = await cached(
+      `subscription:${req.params.id}`,
+      async () => hydrateSubscription(req.params.id),
+      { ttlMs: 60_000, tags: ["reports", "search"] }
+    );
     if (!subscription) {
       return sendError(res, 404, "Subscription not found.");
     }
@@ -682,6 +718,16 @@ const updateSubscription = async (req, res, next) => {
     });
 
     const updated = await hydrateSubscription(req.params.id);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("subscriptions:");
+    invalidateByPrefix("subscription:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "SUBSCRIPTION_UPDATE",
+      entityType: "subscription",
+      entityId: req.params.id,
+    });
     return sendSuccess(res, 200, { subscription: updated }, "Subscription updated successfully.");
   } catch (error) {
     next(error);
@@ -710,6 +756,11 @@ const updateStatus = async (subscriptionId, nextStatus, allowedStatuses) => {
 const sendSubscription = async (req, res, next) => {
   try {
     await updateStatus(req.params.id, "quotation", ["draft"]);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("subscriptions:");
+    invalidateByPrefix("subscription:");
+    await logActivity({ userId: req.user?.id, action: "SUBSCRIPTION_QUOTATION", entityType: "subscription", entityId: req.params.id });
     return sendSuccess(res, 200, {}, "Subscription moved to quotation.");
   } catch (error) {
     next(error);
@@ -719,6 +770,11 @@ const sendSubscription = async (req, res, next) => {
 const confirmSubscription = async (req, res, next) => {
   try {
     await updateStatus(req.params.id, "active", ["quotation", "confirmed"]);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("subscriptions:");
+    invalidateByPrefix("subscription:");
+    await logActivity({ userId: req.user?.id, action: "SUBSCRIPTION_ACTIVATED", entityType: "subscription", entityId: req.params.id });
     return sendSuccess(res, 200, {}, "Subscription confirmed and activated.");
   } catch (error) {
     next(error);
@@ -750,6 +806,12 @@ const closeSubscription = async (req, res, next) => {
         `[AUDIT] approval_requested requester=${req.user.id} action=CLOSE_SUBSCRIPTION entity=subscription:${req.params.id} approval=${approval.id}`
       );
 
+      await createNotificationForRoles({
+        roles: ["admin"],
+        type: "approval",
+        message: `Approval requested to close subscription ${req.params.id}.`,
+      });
+
       return sendSuccess(
         res,
         202,
@@ -759,6 +821,11 @@ const closeSubscription = async (req, res, next) => {
     }
 
     await updateStatus(req.params.id, "closed", ["draft", "quotation", "confirmed", "active"]);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("subscriptions:");
+    invalidateByPrefix("subscription:");
+    await logActivity({ userId: req.user?.id, action: "SUBSCRIPTION_CLOSED", entityType: "subscription", entityId: req.params.id });
     return sendSuccess(res, 200, {}, "Subscription closed.");
   } catch (error) {
     next(error);
@@ -855,6 +922,17 @@ const renewSubscription = async (req, res, next) => {
 
     const subscriptionId = await cloneSubscription(req.params.id, {});
     const subscription = await hydrateSubscription(subscriptionId);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("subscriptions:");
+    invalidateByPrefix("subscription:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "SUBSCRIPTION_RENEWED",
+      entityType: "subscription",
+      entityId: subscriptionId,
+      metadata: { sourceSubscriptionId: req.params.id },
+    });
     return sendSuccess(res, 201, { subscription }, "Subscription renewed successfully.");
   } catch (error) {
     next(error);
@@ -865,6 +943,17 @@ const upsellSubscription = async (req, res, next) => {
   try {
     const subscriptionId = await cloneSubscription(req.params.id, parseSubscriptionPayload(req.body));
     const subscription = await hydrateSubscription(subscriptionId);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("subscriptions:");
+    invalidateByPrefix("subscription:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "SUBSCRIPTION_UPSELL",
+      entityType: "subscription",
+      entityId: subscriptionId,
+      metadata: { sourceSubscriptionId: req.params.id },
+    });
     return sendSuccess(res, 201, { subscription }, "Subscription upsell created successfully.");
   } catch (error) {
     next(error);
@@ -874,6 +963,25 @@ const upsellSubscription = async (req, res, next) => {
 const createInvoiceFromSubscription = async (req, res, next) => {
   try {
     const invoiceId = await createInvoiceFromSubscriptionInternal(req.params.id);
+    invalidateTag("reports");
+    invalidateTag("search");
+    invalidateByPrefix("invoice:");
+    invalidateByPrefix("invoices:");
+    await logActivity({
+      userId: req.user?.id,
+      action: "SUBSCRIPTION_INVOICE_CREATED",
+      entityType: "subscription",
+      entityId: req.params.id,
+      metadata: { invoiceId },
+    });
+    const subscription = await hydrateSubscription(req.params.id);
+    if (subscription?.customer_id) {
+      await createNotification({
+        userId: subscription.customer_id,
+        type: "invoice",
+        message: "A new invoice was generated for your subscription.",
+      });
+    }
     return sendSuccess(res, 201, { invoice_id: invoiceId }, "Invoice generated from subscription successfully.");
   } catch (error) {
     next(error);
