@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,9 @@ export default function CheckoutPage() {
   const customer = useCartStore((state) => state.customer);
   const setCustomer = useCartStore((state) => state.setCustomer);
   const discountCode = useCartStore((state) => state.discountCode);
+  const refreshPricing = useCartStore((state) => state.refreshPricing);
+  const pricingLoading = useCartStore((state) => state.pricingLoading);
+  const pricingError = useCartStore((state) => state.pricingError);
   const { user } = useAuthStore();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -45,55 +48,86 @@ export default function CheckoutPage() {
     setSubmitting(true);
     setError("");
     try {
-      const data = await fetchApi("/orders", {
+      const livePricing = await refreshPricing();
+      
+      // Create invoice/order from cart
+      const orderData = await fetchApi("/orders", {
         method: "POST",
         body: JSON.stringify({
           customer: {
-            id: user?.id,
             name: formCustomer.name,
             email: formCustomer.email,
             address: formCustomer.address,
           },
           items,
           discountCode,
-          discountAmount: totals.discountTotal,
-          subtotal: totals.subtotal,
-          tax: totals.tax,
-          total: totals.total,
+          discountAmount: livePricing.discountTotal,
+          subtotal: livePricing.subtotal,
+          tax: livePricing.tax,
+          total: livePricing.total,
         }),
       });
-      clearCart();
-      router.push(`/order-success?orderId=${data.order.id}`);
+
+      const invoiceId = orderData?.data?.invoice?.id;
+      if (!invoiceId) {
+        throw new Error("Failed to create invoice");
+      }
+
+      // Create Stripe payment session
+      const paymentSession = await fetchApi("/payment/create-session", {
+        method: "POST",
+        body: JSON.stringify({
+          invoice_id: invoiceId,
+          success_url: `${window.location.origin}/order-success`,
+          cancel_url: `${window.location.origin}/checkout`,
+        }),
+      });
+
+      const sessionUrl = paymentSession?.data?.session?.url;
+      if (sessionUrl) {
+        // Redirect to Stripe Checkout
+        window.location.href = sessionUrl;
+      } else {
+        throw new Error("Failed to create Stripe payment session");
+      }
     } catch (err) {
       setError(err.message || "Checkout failed");
-    } finally {
       setSubmitting(false);
     }
   };
 
+  useEffect(() => {
+    if (items.length === 0) return;
+    refreshPricing().catch(() => null);
+  }, [items, discountCode, refreshPricing]);
+
   return (
-    <PortalShell title="Checkout" subtitle="Review your customer details and place the order to create the subscription and invoice.">
+    <PortalShell title="Checkout" subtitle="Review your customer details and proceed to secure Stripe payment to complete the purchase.">
       <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="space-y-4 rounded-[1.75rem] border border-border/50 bg-card/70 p-4 sm:p-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label>Name</Label>
-              <Input value={formCustomer.name} onChange={(e) => setCustomer({ name: e.target.value })} className="mt-2" required />
-            </div>
-            <div>
-              <Label>Email</Label>
-              <Input type="email" value={formCustomer.email} onChange={(e) => setCustomer({ email: e.target.value })} className="mt-2" required />
-            </div>
-          </div>
           <div>
-            <Label>Address</Label>
-            <Input value={formCustomer.address} onChange={(e) => setCustomer({ address: e.target.value })} className="mt-2" required />
+            <h3 className="text-lg font-semibold mb-4">Customer Information</h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label>Name</Label>
+                <Input value={formCustomer.name} onChange={(e) => setCustomer({ name: e.target.value })} className="mt-2" required />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input type="email" value={formCustomer.email} onChange={(e) => setCustomer({ email: e.target.value })} className="mt-2" required />
+              </div>
+            </div>
+            <div className="mt-4">
+              <Label>Address</Label>
+              <Input value={formCustomer.address} onChange={(e) => setCustomer({ address: e.target.value })} className="mt-2" required />
+            </div>
           </div>
 
           {error ? <p className="rounded-xl border border-red-300/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
+          {pricingError ? <p className="rounded-xl border border-red-300/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{pricingError}</p> : null}
 
-          <Button type="submit" disabled={submitting || items.length === 0} className="rounded-full px-6">
-            {submitting ? "Placing order..." : "Place Order"}
+          <Button type="submit" disabled={submitting || pricingLoading || items.length === 0} className="rounded-full px-6 w-full">
+            {submitting ? "Processing Payment..." : "Proceed to Stripe"}
           </Button>
         </section>
 
@@ -103,8 +137,15 @@ export default function CheckoutPage() {
             {items.map((item) => (
               <div key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-border/40 p-3">
                 <div>
-                  <p className="font-medium">{item.productName}</p>
-                  <p className="text-xs text-muted-foreground">{item.variantLabel} · {item.planLabel} · Qty {item.quantity}</p>
+                  <p className="font-medium">
+                    {item.itemType === "subscription" ? item.subscriptionNumber : item.productName}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.itemType === "subscription" 
+                      ? `${item.planName || "Subscription"} - Qty ${item.quantity}`
+                      : `${item.variantLabel} · ${item.planLabel} · Qty ${item.quantity}`
+                    }
+                  </p>
                 </div>
                 <p className="font-semibold">{money(item.total)}</p>
               </div>

@@ -60,27 +60,32 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState({ totalRevenue: 0, activeSubscriptions: 0, paidInvoices: 0 });
   const [trend, setTrend] = useState([]);
   const [growthStats, setGrowthStats] = useState([]);
+  const [publicSubscriptions, setPublicSubscriptions] = useState([]);
+  const [publicLoading, setPublicLoading] = useState(true);
 
   useEffect(() => {
     const loadDashboard = async () => {
       try {
-        const [summaryData, trendData, subscriptionStats, invoiceData] = await Promise.all([
+        const [summaryData, trendData, subscriptionStats, invoiceData, catalogData] = await Promise.all([
           fetchApi("/reports/summary"),
           fetchApi("/reports/revenue-trend"),
           fetchApi("/reports/subscription-stats"),
           fetchApi("/invoices"),
+          fetchApi("/portal/subscriptions").catch(() => ({ data: { subscriptions: [] } })),
         ]);
 
-        const paidInvoices = (invoiceData?.invoices || []).filter((item) => String(item.status || "").toLowerCase() === "paid").length;
+        const paidInvoices = (invoiceData?.data?.invoices || []).filter((item) => String(item.status || "").toLowerCase() === "paid").length;
         setSummary({
-          totalRevenue: Number(summaryData?.summary?.totalRevenue || 0),
-          activeSubscriptions: Number(summaryData?.summary?.activeSubscriptions || 0),
+          totalRevenue: Number(summaryData?.data?.summary?.totalRevenue || 0),
+          activeSubscriptions: Number(summaryData?.data?.summary?.activeSubscriptions || 0),
           paidInvoices,
         });
-        setTrend(trendData?.trend || []);
-        setGrowthStats(subscriptionStats?.stats || []);
+        setTrend(trendData?.data?.trend || []);
+        setGrowthStats(subscriptionStats?.data?.stats || []);
+        setPublicSubscriptions((catalogData?.data?.subscriptions || []).filter((subscription) => Boolean(subscription?.is_public ?? subscription?.isPublic)));
       } finally {
         setLoading(false);
+        setPublicLoading(false);
       }
     };
 
@@ -122,6 +127,38 @@ export default function DashboardPage() {
         <RevenueTrendChart data={trend} />
         <SubscriptionGrowthChart stats={growthStats} />
       </div>
+
+      <section className="rounded-2xl border border-border/50 bg-card/70 p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Public subscription offers</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Browse subscriptions that can be purchased from the user portal.</p>
+          </div>
+          <a href="/my-subscriptions" className="text-sm font-medium text-primary hover:underline">Open My Subscriptions</a>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {publicLoading ? (
+            Array.from({ length: 3 }).map((_, index) => <SkeletonCard key={index} />)
+          ) : publicSubscriptions.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border/60 p-6 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
+              No public subscription offers are available right now.
+            </div>
+          ) : (
+            publicSubscriptions.slice(0, 3).map((subscription) => (
+              <article key={subscription.id} className="rounded-2xl border border-border/50 bg-background/60 p-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Public offer</p>
+                <h3 className="mt-2 text-base font-semibold text-foreground">{subscription.subscriptionNumber || subscription.id}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{subscription.planName || subscription.recurringPlanLabel || subscription.plan?.name || "Subscription plan"}</p>
+                <div className="mt-4 flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Status</span>
+                  <span className="rounded-full bg-primary/10 px-3 py-1 font-medium text-primary">{subscription.status || "Draft"}</span>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
 
       <div className="rounded-2xl border border-border/50 bg-card/70 p-5 text-sm text-muted-foreground">
         <p>
