@@ -83,15 +83,17 @@ const signup = async (req, res, next) => {
 
     return res.status(201).json({
       success: true,
-      message: "Account created successfully.",
-      token,
-      user: {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        created_at: newUser.created_at,
+      data: {
+        token,
+        user: {
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          role: newUser.role,
+          created_at: newUser.created_at,
+        },
       },
+      message: "Account created successfully.",
     });
   } catch (error) {
     next(error);
@@ -144,15 +146,17 @@ const login = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: "Login successful.",
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        created_at: user.created_at,
+      data: {
+        token,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          created_at: user.created_at,
+        },
       },
+      message: "Login successful.",
     });
   } catch (error) {
     next(error);
@@ -185,6 +189,7 @@ const forgotPassword = async (req, res, next) => {
     if (result.rows.length === 0) {
       return res.status(200).json({
         success: true,
+        data: {},
         message:
           "If an account with that email exists, a reset link has been sent.",
       });
@@ -216,6 +221,7 @@ const forgotPassword = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
+      data: {},
       message:
         "If an account with that email exists, a reset link has been sent.",
     });
@@ -296,6 +302,7 @@ const resetPassword = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
+      data: {},
       message: "Password reset successfully. You can now log in.",
     });
   } catch (error) {
@@ -324,7 +331,10 @@ const getMe = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      user: result.rows[0],
+      data: {
+        user: result.rows[0],
+      },
+      message: "User profile fetched successfully.",
     });
   } catch (error) {
     next(error);
