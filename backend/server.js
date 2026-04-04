@@ -12,7 +12,9 @@ const discountRoutes = require("./routes/discountRoutes");
 const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const quotationTemplateRoutes = require("./routes/quotationTemplateRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
 const approvalRoutes = require("./routes/approvalRoutes");
+const { handleStripeWebhook } = require("./controllers/paymentController");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
 const { requestLogger } = require("./middlewares/requestLogger");
 const { sendSuccess } = require("./utils/apiResponse");
@@ -31,6 +33,14 @@ app.use(
   })
 );
 app.use(requestLogger);
+
+// Stripe webhook must use raw payload for signature verification.
+app.post(
+  "/api/payments/webhook",
+  express.raw({ type: "application/json" }),
+  handleStripeWebhook
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -59,6 +69,7 @@ app.use("/api/discounts", discountRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/quotation-templates", quotationTemplateRoutes);
 app.use("/api/invoices", invoiceRoutes);
+app.use("/api/payments", paymentRoutes);
 app.use("/api/approvals", approvalRoutes);
 
 // ─────────────────────────────────────────────

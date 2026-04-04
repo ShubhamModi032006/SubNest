@@ -226,6 +226,7 @@ const createTables = async () => {
       grand_total NUMERIC(12, 2) NOT NULL CHECK (grand_total >= 0),
       sent_at TIMESTAMP WITH TIME ZONE,
       confirmed_at TIMESTAMP WITH TIME ZONE,
+      paid_at TIMESTAMP WITH TIME ZONE,
       cancelled_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       CHECK (
@@ -233,6 +234,11 @@ const createTables = async () => {
          CASE WHEN customer_contact_id IS NOT NULL THEN 1 ELSE 0 END) = 1
       )
     );
+  `;
+
+  const alterInvoicesTable = `
+    ALTER TABLE invoices
+    ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP WITH TIME ZONE;
   `;
 
   const createInvoiceItemsTable = `
@@ -246,6 +252,18 @@ const createTables = async () => {
       discount NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
       tax NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (tax >= 0),
       total NUMERIC(12, 2) NOT NULL CHECK (total >= 0),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  const createPaymentsTable = `
+    CREATE TABLE IF NOT EXISTS payments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'success', 'failed')),
+      payment_method VARCHAR(20) NOT NULL DEFAULT 'stripe' CHECK (payment_method IN ('stripe')),
+      stripe_session_id VARCHAR(255) NOT NULL UNIQUE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -350,6 +368,20 @@ const createTables = async () => {
     CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
   `;
 
+  const createPaymentsInvoiceIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_payments_invoice_id ON payments(invoice_id);
+  `;
+
+  const createPaymentsStatusIndex = `
+    CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+  `;
+
+  const createPaymentsUniqueActiveInvoiceIndex = `
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_active_invoice
+    ON payments(invoice_id)
+    WHERE status IN ('pending', 'success');
+  `;
+
   const createApprovalsStatusIndex = `
     CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
   `;
@@ -412,10 +444,14 @@ const createTables = async () => {
     console.log("✅ Quotation template lines table ready");
 
     await pool.query(createInvoicesTable);
+    await pool.query(alterInvoicesTable);
     console.log("✅ Invoices table ready");
 
     await pool.query(createInvoiceItemsTable);
     console.log("✅ Invoice items table ready");
+
+    await pool.query(createPaymentsTable);
+    console.log("✅ Payments table ready");
 
     await pool.query(createApprovalsTable);
     console.log("✅ Approvals table ready");
@@ -440,6 +476,9 @@ const createTables = async () => {
     await pool.query(createInvoicesStatusIndex);
     await pool.query(createInvoicesSubscriptionIdIndex);
     await pool.query(createInvoiceItemsInvoiceIdIndex);
+    await pool.query(createPaymentsInvoiceIdIndex);
+    await pool.query(createPaymentsStatusIndex);
+    await pool.query(createPaymentsUniqueActiveInvoiceIndex);
     await pool.query(createApprovalsStatusIndex);
     await pool.query(createApprovalsUserIdIndex);
     await pool.query(createApprovalsEntityIndex);

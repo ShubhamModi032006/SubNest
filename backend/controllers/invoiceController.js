@@ -32,7 +32,7 @@ const hydrateInvoice = async (invoiceId) => {
   const invoiceResult = await pool.query(
     `SELECT i.id, i.invoice_number, i.subscription_id, i.customer_user_id, i.customer_contact_id, i.customer_type,
             i.invoice_date, i.due_date, i.status, i.subtotal, i.discount_total, i.tax_total, i.grand_total,
-            i.sent_at, i.confirmed_at, i.cancelled_at, i.created_at,
+            i.sent_at, i.confirmed_at, i.paid_at, i.cancelled_at, i.created_at,
             u.id AS user_id, u.name AS user_name, u.email AS user_email,
             c.id AS contact_id, c.name AS contact_name, c.email AS contact_email,
             s.subscription_number
@@ -76,6 +76,7 @@ const hydrateInvoice = async (invoiceId) => {
     grand_total: Number(row.grand_total),
     sent_at: row.sent_at,
     confirmed_at: row.confirmed_at,
+    paid_at: row.paid_at,
     cancelled_at: row.cancelled_at,
     created_at: row.created_at,
     items: itemResult.rows.map((item) => ({
@@ -225,7 +226,7 @@ const getInvoices = async (req, res, next) => {
     }
 
     const result = await pool.query(
-      `SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.status, i.grand_total, i.customer_type,
+      `SELECT i.id, i.invoice_number, i.invoice_date, i.due_date, i.status, i.grand_total, i.paid_at, i.customer_type,
               u.name AS user_name, c.name AS contact_name
        FROM invoices i
        LEFT JOIN users u ON i.customer_user_id = u.id
@@ -243,6 +244,8 @@ const getInvoices = async (req, res, next) => {
       due_date: row.due_date,
       total_amount: Number(row.grand_total),
       status: row.status,
+      payment_date: row.paid_at,
+      payment_status: row.status === "paid" ? "paid" : "unpaid",
     }));
 
     return sendSuccess(res, 200, { invoices }, "Invoices fetched successfully.");
