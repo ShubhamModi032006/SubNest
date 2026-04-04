@@ -12,8 +12,8 @@ const { protect, allowRoles } = require("../middlewares/authMiddleware");
 
 router.get("/", protect, allowRoles("admin", "internal"), getUsers);
 router.post("/", protect, allowRoles("admin"), createUser);
-router.get("/:id", protect, allowRoles("admin", "internal"), getUserById);
-router.put("/:id", protect, allowRoles("admin"), updateUser);
+router.get("/:id", protect, allowRoles("admin", "internal", "user"), getUserById);
+router.put("/:id", protect, allowRoles("admin", "internal", "user"), updateUser);
 router.delete("/:id", protect, allowRoles("admin"), deleteUser);
 
 module.exports = router;

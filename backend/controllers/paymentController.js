@@ -26,6 +26,21 @@ const withTransaction = async (handler) => {
 
 const toCents = (amount) => Math.round((Number(amount) + Number.EPSILON) * 100);
 
+const isCustomerRole = (role) => String(role || "").toLowerCase() === "user";
+
+const ensureInvoiceAccess = (invoice, user) => {
+  if (!isCustomerRole(user?.role)) {
+    return;
+  }
+
+  const ownerId = String(invoice.customer_id || invoice.customer_user_id || "");
+  if (ownerId !== String(user.id || "")) {
+    const error = new Error("You can only access your own invoice payment session.");
+    error.statusCode = 403;
+    throw error;
+  }
+};
+
 const ensureStripeConfigured = () => {
   if (!stripe) {
     const error = new Error("Stripe is not configured. Set STRIPE_SECRET_KEY.");
@@ -64,7 +79,7 @@ const createPaymentSession = async (req, res, next) => {
 
     const result = await withTransaction(async (client) => {
       const invoiceResult = await client.query(
-        `SELECT id, invoice_number, status, grand_total, paid_at
+        `SELECT id, invoice_number, status, grand_total, paid_at, customer_id, customer_user_id
          FROM invoices
          WHERE id = $1
          FOR UPDATE`,
@@ -78,6 +93,7 @@ const createPaymentSession = async (req, res, next) => {
       }
 
       const invoice = invoiceResult.rows[0];
+      ensureInvoiceAccess(invoice, req.user);
       if (invoice.status !== "confirmed") {
         const error = new Error("Only confirmed invoices can be paid.");
         error.statusCode = 400;
@@ -185,9 +201,10 @@ const markPaymentFailed = async (sessionId) => {
 const settlePaymentSuccess = async (sessionId) => {
   return withTransaction(async (client) => {
     const paymentResult = await client.query(
-      `SELECT id, invoice_id, status
-       FROM payments
-       WHERE stripe_session_id = $1
+      `SELECT p.id, p.invoice_id, p.status, i.subscription_id
+       FROM payments p
+       JOIN invoices i ON i.id = p.invoice_id
+       WHERE p.stripe_session_id = $1
        FOR UPDATE`,
       [sessionId]
     );
@@ -207,6 +224,22 @@ const settlePaymentSuccess = async (sessionId) => {
        SET status = 'paid', paid_at = COALESCE(paid_at, NOW())
        WHERE id = $1
          AND status IN ('confirmed', 'paid')`,
+      [payment.invoice_id]
+    );
+
+    if (payment.subscription_id) {
+      await client.query(
+        `UPDATE subscriptions
+         SET status = 'active'
+         WHERE id = $1`,
+        [payment.subscription_id]
+      );
+    }
+
+    await client.query(
+      `UPDATE orders
+       SET status = 'completed', updated_at = NOW()
+       WHERE invoice_id = $1`,
       [payment.invoice_id]
     );
 
@@ -250,6 +283,42 @@ const handleStripeWebhook = async (req, res, next) => {
   }
 };
 
+const completePaymentSession = async (req, res, next) => {
+  try {
+    const sessionId = String(req.params.id || "").trim();
+    if (!sessionId) {
+      return sendError(res, 400, "Payment session id is required.");
+    }
+
+    const payment = await settlePaymentSuccess(sessionId);
+    if (!payment) {
+      return sendError(res, 404, "Payment session not found.");
+    }
+
+    return sendSuccess(res, 200, { payment }, "Payment session completed.");
+  } catch (error) {
+    next(error);
+  }
+};
+
+const failPaymentSession = async (req, res, next) => {
+  try {
+    const sessionId = String(req.params.id || "").trim();
+    if (!sessionId) {
+      return sendError(res, 400, "Payment session id is required.");
+    }
+
+    const payment = await markPaymentFailed(sessionId);
+    if (!payment) {
+      return sendError(res, 404, "Payment session not found.");
+    }
+
+    return sendSuccess(res, 200, { payment }, "Payment session marked as failed.");
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getPaymentSession = async (req, res, next) => {
   try {
     const sessionId = String(req.params.id || "").trim();
@@ -260,7 +329,7 @@ const getPaymentSession = async (req, res, next) => {
     const result = await pool.query(
       `SELECT p.id AS payment_id, p.invoice_id, p.amount, p.status AS payment_status, p.payment_method,
               p.stripe_session_id, p.created_at AS payment_created_at,
-              i.invoice_number, i.status AS invoice_status, i.grand_total, i.paid_at
+              i.invoice_number, i.status AS invoice_status, i.grand_total, i.paid_at, i.customer_id, i.customer_user_id
        FROM payments p
        JOIN invoices i ON i.id = p.invoice_id
        WHERE p.stripe_session_id = $1 OR p.id::text = $1
@@ -274,6 +343,7 @@ const getPaymentSession = async (req, res, next) => {
     }
 
     const row = result.rows[0];
+    ensureInvoiceAccess(row, req.user);
     const createdUnix = Math.floor(new Date(row.payment_created_at).getTime() / 1000);
 
     return sendSuccess(
@@ -318,4 +388,6 @@ module.exports = {
   createPaymentSession,
   getPaymentSession,
   handleStripeWebhook,
+  completePaymentSession,
+  failPaymentSession,
 };

@@ -22,7 +22,7 @@ router.put("/:id", protect, allowRoles("admin", "internal"), updateSubscription)
 router.post("/:id/send", protect, allowRoles("admin", "internal"), sendSubscription);
 router.post("/:id/confirm", protect, allowRoles("admin", "internal"), confirmSubscription);
 router.post("/:id/close", protect, allowRoles("admin", "internal"), closeSubscription);
-router.post("/:id/renew", protect, allowRoles("admin", "internal"), renewSubscription);
+router.post("/:id/renew", protect, allowRoles("admin", "internal", "user"), renewSubscription);
 router.post("/:id/upsell", protect, allowRoles("admin", "internal"), upsellSubscription);
 router.post("/:id/create-invoice", protect, allowRoles("admin", "internal"), createInvoiceFromSubscription);
 

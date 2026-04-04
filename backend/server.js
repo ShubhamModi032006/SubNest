@@ -13,6 +13,7 @@ const subscriptionRoutes = require("./routes/subscriptionRoutes");
 const quotationTemplateRoutes = require("./routes/quotationTemplateRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const portalRoutes = require("./routes/portalRoutes");
 const approvalRoutes = require("./routes/approvalRoutes");
 const { handleStripeWebhook } = require("./controllers/paymentController");
 const { errorHandler, notFound } = require("./middlewares/errorHandler");
@@ -70,6 +71,7 @@ app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/quotation-templates", quotationTemplateRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api", portalRoutes);
 app.use("/api/approvals", approvalRoutes);
 
 // ─────────────────────────────────────────────

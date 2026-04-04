@@ -838,6 +838,21 @@ const cloneSubscription = async (subscriptionId, overrides = {}) => {
 
 const renewSubscription = async (req, res, next) => {
   try {
+    const ownershipCheck = await pool.query(
+      `SELECT id, customer_user_id, customer_contact_id, customer_type
+       FROM subscriptions
+       WHERE id = $1`,
+      [req.params.id]
+    );
+
+    if (ownershipCheck.rows.length === 0) {
+      return sendError(res, 404, "Subscription not found.");
+    }
+
+    if (req.user.role === "user" && String(ownershipCheck.rows[0].customer_user_id || "") !== String(req.user.id || "")) {
+      return sendError(res, 403, "You can only renew your own subscription.");
+    }
+
     const subscriptionId = await cloneSubscription(req.params.id, {});
     const subscription = await hydrateSubscription(subscriptionId);
     return sendSuccess(res, 201, { subscription }, "Subscription renewed successfully.");

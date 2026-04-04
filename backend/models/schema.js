@@ -156,6 +156,7 @@ const createTables = async () => {
     CREATE TABLE IF NOT EXISTS subscriptions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       subscription_number VARCHAR(50) NOT NULL UNIQUE,
+      customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
       customer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
       customer_contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
       customer_type VARCHAR(20) NOT NULL CHECK (customer_type IN ('user', 'contact')),
@@ -163,6 +164,7 @@ const createTables = async () => {
       start_date DATE NOT NULL,
       expiration_date DATE,
       payment_terms VARCHAR(255),
+      order_id UUID,
       status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'quotation', 'confirmed', 'active', 'closed')),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       CHECK (
@@ -214,6 +216,8 @@ const createTables = async () => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       invoice_number VARCHAR(50) NOT NULL UNIQUE,
       subscription_id UUID REFERENCES subscriptions(id) ON DELETE SET NULL,
+      order_id UUID,
+      customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
       customer_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
       customer_contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
       customer_type VARCHAR(20) NOT NULL CHECK (customer_type IN ('user', 'contact')),
@@ -238,7 +242,44 @@ const createTables = async () => {
 
   const alterInvoicesTable = `
     ALTER TABLE invoices
+    ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS order_id UUID,
     ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP WITH TIME ZONE;
+  `;
+
+  const alterSubscriptionsTable = `
+    ALTER TABLE subscriptions
+    ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS order_id UUID;
+  `;
+
+  const createOrdersTable = `
+    CREATE TABLE IF NOT EXISTS orders (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      subscription_id UUID REFERENCES subscriptions(id) ON DELETE SET NULL,
+      invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL,
+      cart_hash VARCHAR(128) NOT NULL,
+      total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed')),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  const createOrderItemsTable = `
+    CREATE TABLE IF NOT EXISTS order_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      product_id VARCHAR(255) NOT NULL,
+      variant_id VARCHAR(255),
+      plan_id VARCHAR(255),
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      price NUMERIC(12, 2) NOT NULL CHECK (price >= 0),
+      line_total NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (line_total >= 0),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
   `;
 
   const createInvoiceItemsTable = `
@@ -336,6 +377,28 @@ const createTables = async () => {
     CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_contact_id ON subscriptions(customer_contact_id);
   `;
 
+  const createSubscriptionsCustomerIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_id ON subscriptions(customer_id);
+  `;
+
+  const createOrdersUserIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+  `;
+
+  const createOrdersStatusIndex = `
+    CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+  `;
+
+  const createOrdersCartHashIndex = `
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_orders_user_cart_hash
+    ON orders(user_id, cart_hash)
+    WHERE status IN ('pending', 'confirmed');
+  `;
+
+  const dropLegacyOrdersCartHashIndex = `
+    DROP INDEX IF EXISTS uniq_orders_user_cart_hash;
+  `;
+
   const createSubscriptionsStatusIndex = `
     CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
   `;
@@ -358,6 +421,10 @@ const createTables = async () => {
 
   const createInvoicesStatusIndex = `
     CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+  `;
+
+  const createInvoicesCustomerIdIndex = `
+    CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id);
   `;
 
   const createInvoicesSubscriptionIdIndex = `
@@ -432,6 +499,7 @@ const createTables = async () => {
     console.log("✅ Product recurring prices table ready");
 
     await pool.query(createSubscriptionsTable);
+    await pool.query(alterSubscriptionsTable);
     console.log("✅ Subscriptions table ready");
 
     await pool.query(createSubscriptionItemsTable);
@@ -450,6 +518,10 @@ const createTables = async () => {
     await pool.query(createInvoiceItemsTable);
     console.log("✅ Invoice items table ready");
 
+    await pool.query(createOrdersTable);
+    await pool.query(createOrderItemsTable);
+    console.log("✅ Orders tables ready");
+
     await pool.query(createPaymentsTable);
     console.log("✅ Payments table ready");
 
@@ -466,6 +538,7 @@ const createTables = async () => {
     await pool.query(createProductVariantsProductIdIndex);
     await pool.query(createProductRecurringPricesProductIdIndex);
     await pool.query(createSubscriptionsNumberIndex);
+    await pool.query(createSubscriptionsCustomerIdIndex);
     await pool.query(createSubscriptionsCustomerUserIdIndex);
     await pool.query(createSubscriptionsCustomerContactIdIndex);
     await pool.query(createSubscriptionsStatusIndex);
@@ -474,8 +547,13 @@ const createTables = async () => {
     await pool.query(createQuotationTemplateLinesTemplateIdIndex);
     await pool.query(createInvoicesNumberIndex);
     await pool.query(createInvoicesStatusIndex);
+    await pool.query(createInvoicesCustomerIdIndex);
     await pool.query(createInvoicesSubscriptionIdIndex);
     await pool.query(createInvoiceItemsInvoiceIdIndex);
+    await pool.query(createOrdersUserIdIndex);
+    await pool.query(createOrdersStatusIndex);
+    await pool.query(dropLegacyOrdersCartHashIndex);
+    await pool.query(createOrdersCartHashIndex);
     await pool.query(createPaymentsInvoiceIdIndex);
     await pool.query(createPaymentsStatusIndex);
     await pool.query(createPaymentsUniqueActiveInvoiceIndex);

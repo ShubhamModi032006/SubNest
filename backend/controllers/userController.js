@@ -122,6 +122,10 @@ const createUser = async (req, res, next) => {
 const getUserById = async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (req.user.role === "user" && req.user.id !== id) {
+      return sendError(res, 403, "You can only access your own profile.");
+    }
+
     const isAdmin = req.user.role === "admin";
     const selectFields = isAdmin
       ? "id, name, email, role, phone, address, created_at"
@@ -144,6 +148,10 @@ const updateUser = async (req, res, next) => {
     const { id } = req.params;
     const { name, role, phone, address } = req.body;
 
+    if (req.user.role === "user" && req.user.id !== id) {
+      return sendError(res, 403, "You can only update your own profile.");
+    }
+
     if (!name && !role && phone === undefined && address === undefined) {
       return sendError(res, 400, "Provide at least one field to update.");
     }
@@ -155,6 +163,10 @@ const updateUser = async (req, res, next) => {
 
     if (role && !UPDATABLE_ROLES.includes(role)) {
       return sendError(res, 400, "Invalid role value.");
+    }
+
+    if (req.user.role === "user" && role && role !== req.user.role) {
+      return sendError(res, 403, "You cannot change your own role.");
     }
 
     const result = await pool.query(
