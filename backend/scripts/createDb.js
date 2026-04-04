@@ -76,6 +76,69 @@ const CREATE_CONTACTS_TABLE = `
   );
 `;
 
+const CREATE_TAXES_TABLE = `
+  CREATE TABLE IF NOT EXISTS taxes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const CREATE_PLANS_TABLE = `
+  CREATE TABLE IF NOT EXISTS plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const CREATE_PRODUCTS_TABLE = `
+  CREATE TABLE IF NOT EXISTS products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('service', 'goods')),
+    sales_price NUMERIC(12, 2) NOT NULL CHECK (sales_price > 0),
+    cost_price NUMERIC(12, 2) NOT NULL CHECK (cost_price > 0),
+    tax_id UUID REFERENCES taxes(id) ON DELETE SET NULL,
+    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const CREATE_PRODUCT_VARIANTS_TABLE = `
+  CREATE TABLE IF NOT EXISTS product_variants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    attribute VARCHAR(255) NOT NULL,
+    value VARCHAR(255) NOT NULL,
+    extra_price NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (extra_price >= 0)
+  );
+`;
+
+const CREATE_PRODUCT_RECURRING_PRICES_TABLE = `
+  CREATE TABLE IF NOT EXISTS product_recurring_prices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    plan_id UUID REFERENCES plans(id) ON DELETE SET NULL,
+    price NUMERIC(12, 2) NOT NULL CHECK (price > 0),
+    min_quantity INTEGER NOT NULL DEFAULT 1 CHECK (min_quantity > 0),
+    start_date DATE NOT NULL,
+    end_date DATE
+  );
+`;
+
+const CREATE_PRODUCTS_NAME_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+`;
+
+const CREATE_PRODUCT_VARIANTS_PRODUCT_ID_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants(product_id);
+`;
+
+const CREATE_PRODUCT_RECURRING_PRICES_PRODUCT_ID_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_product_recurring_prices_product_id ON product_recurring_prices(product_id);
+`;
+
 const CREATE_USERS_EMAIL_INDEX = `
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 `;
@@ -151,6 +214,26 @@ const run = async () => {
 
     await appClient.query(CREATE_CONTACTS_USER_ID_INDEX);
     console.log("✅ Index: contacts.user_id — ready");
+
+    await appClient.query(CREATE_TAXES_TABLE);
+    console.log("✅ Table: taxes — ready");
+
+    await appClient.query(CREATE_PLANS_TABLE);
+    console.log("✅ Table: plans — ready");
+
+    await appClient.query(CREATE_PRODUCTS_TABLE);
+    console.log("✅ Table: products — ready");
+
+    await appClient.query(CREATE_PRODUCT_VARIANTS_TABLE);
+    console.log("✅ Table: product_variants — ready");
+
+    await appClient.query(CREATE_PRODUCT_RECURRING_PRICES_TABLE);
+    console.log("✅ Table: product_recurring_prices — ready");
+
+    await appClient.query(CREATE_PRODUCTS_NAME_INDEX);
+    await appClient.query(CREATE_PRODUCT_VARIANTS_PRODUCT_ID_INDEX);
+    await appClient.query(CREATE_PRODUCT_RECURRING_PRICES_PRODUCT_ID_INDEX);
+    console.log("✅ Product indexes — ready");
 
     console.log("\n🎉 Database setup complete! You can now run: npm run dev");
   } catch (err) {
