@@ -42,8 +42,16 @@ const CREATE_USERS_TABLE = `
     password VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user'
       CHECK (role IN ('admin', 'internal', 'user')),
+    phone VARCHAR(50),
+    address TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
   );
+`;
+
+const ALTER_USERS_TABLE = `
+  ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS phone VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS address TEXT;
 `;
 
 const CREATE_PASSWORD_RESETS_TABLE = `
@@ -54,6 +62,26 @@ const CREATE_PASSWORD_RESETS_TABLE = `
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
   );
+`;
+
+const CREATE_CONTACTS_TABLE = `
+  CREATE TABLE IF NOT EXISTS contacts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    phone VARCHAR(50),
+    address TEXT,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+const CREATE_USERS_EMAIL_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+`;
+
+const CREATE_CONTACTS_USER_ID_INDEX = `
+  CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id);
 `;
 
 const CREATE_PGCRYPTO_EXTENSION = `
@@ -109,10 +137,20 @@ const run = async () => {
     console.log("✅ Extension: pgcrypto — ready");
 
     await appClient.query(CREATE_USERS_TABLE);
+    await appClient.query(ALTER_USERS_TABLE);
     console.log("✅ Table: users — ready");
+
+    await appClient.query(CREATE_USERS_EMAIL_INDEX);
+    console.log("✅ Index: users.email — ready");
 
     await appClient.query(CREATE_PASSWORD_RESETS_TABLE);
     console.log("✅ Table: password_resets — ready");
+
+    await appClient.query(CREATE_CONTACTS_TABLE);
+    console.log("✅ Table: contacts — ready");
+
+    await appClient.query(CREATE_CONTACTS_USER_ID_INDEX);
+    console.log("✅ Index: contacts.user_id — ready");
 
     console.log("\n🎉 Database setup complete! You can now run: npm run dev");
   } catch (err) {
