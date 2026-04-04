@@ -3,8 +3,10 @@ import { create } from 'zustand';
 export const useDataStore = create((set, get) => ({
   users: [],
   contacts: [],
+  products: [],
   loadingUsers: false,
   loadingContacts: false,
+  loadingProducts: false,
   error: null,
 
   fetchUsers: async (force = false) => {
@@ -110,6 +112,72 @@ export const useDataStore = create((set, get) => ({
       const data = await res.json();
       set(state => ({ contacts: state.contacts.map(c => c.id === id ? data.contact : c) }));
       return data.contact;
+    } catch(err) {
+      throw err;
+    }
+  },
+
+  fetchProducts: async (force = false) => {
+    if (get().products.length > 0 && !force) return;
+    set({ loadingProducts: true, error: null });
+    try {
+      const res = await fetch("/api/products");
+      if (!res.ok) throw new Error("Failed to fetch products");
+      const data = await res.json();
+      set({ products: data.products || [], loadingProducts: false });
+    } catch (err) {
+      set({ error: err.message, loadingProducts: false });
+    }
+  },
+
+  deleteProduct: async (id) => {
+    try {
+      await fetch(`/api/products/${id}`, { method: 'DELETE' });
+      set(state => ({ products: state.products.filter(p => p.id !== id) }));
+      return true;
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  },
+
+  archiveProduct: async (id) => {
+    try {
+      const res = await fetch(`/api/products/${id}/archive`, { method: 'PATCH' });
+      const data = await res.json();
+      set(state => ({ products: state.products.map(p => p.id === id ? data.product : p) }));
+      return data.product;
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  },
+  
+  createProduct: async (productData) => {
+    try {
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(productData)
+      });
+      const data = await res.json();
+      set(state => ({ products: [...state.products, data.product] }));
+      return data.product;
+    } catch(err) {
+      throw err;
+    }
+  },
+  
+  updateProduct: async (id, productData) => {
+    try {
+      const res = await fetch(`/api/products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(productData)
+      });
+      const data = await res.json();
+      set(state => ({ products: state.products.map(p => p.id === id ? data.product : p) }));
+      return data.product;
     } catch(err) {
       throw err;
     }
