@@ -5,12 +5,15 @@
 const errorHandler = (err, req, res, next) => {
   console.error("🔥 Error:", err.message);
 
+  if (res.headersSent) {
+    return next(err);
+  }
+
   // Duplicate key (unique constraint violation in PostgreSQL)
   if (err.code === "23505") {
     return res.status(409).json({
       success: false,
       message: "A record with this value already exists.",
-      field: err.detail,
     });
   }
 
@@ -42,7 +45,6 @@ const errorHandler = (err, req, res, next) => {
   res.status(statusCode).json({
     success: false,
     message: err.message || "Internal Server Error",
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   });
 };
 

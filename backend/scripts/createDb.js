@@ -22,6 +22,12 @@ if (!dbUrl) {
 // Extract the target database name from the connection string
 const urlObj = new URL(dbUrl);
 const targetDb = urlObj.pathname.replace("/", ""); // e.g. "subnest"
+const dbHost = urlObj.hostname;
+const isLocalDb = dbHost === "localhost" || dbHost === "127.0.0.1";
+const useSsl =
+  process.env.DB_SSL === "true" ||
+  process.env.NODE_ENV === "production" ||
+  !isLocalDb;
 
 // Build the admin URL by swapping the database to "postgres"
 const adminUrl = new URL(dbUrl);
@@ -50,10 +56,17 @@ const CREATE_PASSWORD_RESETS_TABLE = `
   );
 `;
 
+const CREATE_PGCRYPTO_EXTENSION = `
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+`;
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const run = async () => {
   // Step 1: Connect to "postgres" (admin) database to create target DB
-  const adminClient = new Client({ connectionString: adminUrl.toString() });
+  const adminClient = new Client({
+    connectionString: adminUrl.toString(),
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
+  });
 
   try {
     await adminClient.connect();
@@ -83,11 +96,17 @@ const run = async () => {
   }
 
   // Step 2: Connect to the target database and create tables
-  const appClient = new Client({ connectionString: dbUrl });
+  const appClient = new Client({
+    connectionString: dbUrl,
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
+  });
 
   try {
     await appClient.connect();
     console.log(`🔌 Connected to "${targetDb}"`);
+
+    await appClient.query(CREATE_PGCRYPTO_EXTENSION);
+    console.log("✅ Extension: pgcrypto — ready");
 
     await appClient.query(CREATE_USERS_TABLE);
     console.log("✅ Table: users — ready");
