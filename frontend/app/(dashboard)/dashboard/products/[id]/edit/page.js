@@ -93,7 +93,8 @@ export default function EditProductPage() {
       await updateProduct(id, payload);
       router.push(`/dashboard/products/${id}`);
     } catch (err) {
-      setError("Failed to modify product.");
+      setError(err?.message || "Failed to modify product.");
+    } finally {
       setSaving(false);
     }
   };

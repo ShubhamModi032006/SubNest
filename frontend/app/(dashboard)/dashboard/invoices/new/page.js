@@ -14,8 +14,10 @@ export default function NewInvoicePage() {
   const role = useAuthStore((state) => state.user?.role);
   const {
     subscriptions,
+    invoices,
     loadingSubscriptions,
     fetchSubscriptions,
+    fetchInvoices,
     createInvoiceFromSubscription,
   } = useDataStore();
 
@@ -27,11 +29,23 @@ export default function NewInvoicePage() {
 
   useEffect(() => {
     fetchSubscriptions();
-  }, [fetchSubscriptions]);
+    fetchInvoices();
+  }, [fetchSubscriptions, fetchInvoices]);
 
   const sourceSubscriptions = useMemo(() => {
-    return subscriptions.filter((item) => item.status !== "Closed" && item.status !== "closed");
-  }, [subscriptions]);
+    const blockedSubscriptionIds = new Set(
+      invoices
+        .filter((invoice) => String(invoice?.status || "").toLowerCase() !== "cancelled")
+        .map((invoice) => String(invoice?.linkedSubscriptionId || ""))
+        .filter(Boolean)
+    );
+
+    return subscriptions.filter((item) => {
+      const status = String(item?.status || "").toLowerCase();
+      if (status === "closed") return false;
+      return !blockedSubscriptionIds.has(String(item.id));
+    });
+  }, [subscriptions, invoices]);
 
   useEffect(() => {
     if (!subscriptionId && sourceSubscriptions.length > 0) {

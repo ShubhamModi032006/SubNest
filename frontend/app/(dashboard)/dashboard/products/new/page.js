@@ -77,7 +77,8 @@ export default function CreateProductPage() {
       await createProduct(payload);
       router.push("/dashboard/products");
     } catch (err) {
-      setError("Failed to create product.");
+      setError(err?.message || "Failed to create product.");
+    } finally {
       setSaving(false);
     }
   };

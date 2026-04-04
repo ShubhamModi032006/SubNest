@@ -35,6 +35,47 @@ const normalizeProduct = (product) => ({
   })),
 });
 
+const normalizeUser = (user) => ({
+  ...user,
+  createdAt: user?.createdAt ?? user?.created_at ?? '',
+});
+
+const normalizeContact = (contact) => ({
+  ...contact,
+  userId: contact?.userId ?? contact?.user_id ?? '',
+  createdAt: contact?.createdAt ?? contact?.created_at ?? '',
+});
+
+const normalizePlan = (plan) => ({
+  ...plan,
+  billingPeriod: plan?.billingPeriod ?? plan?.billing_period ?? '',
+  minQuantity: Number(plan?.minQuantity ?? plan?.min_quantity ?? 1),
+  startDate: plan?.startDate ?? plan?.start_date ?? '',
+  endDate: plan?.endDate ?? plan?.end_date ?? '',
+  createdAt: plan?.createdAt ?? plan?.created_at ?? '',
+});
+
+const normalizeTax = (tax) => {
+  const rawType = String(tax?.type || '').toLowerCase();
+  const uiType = rawType === 'percentage' ? 'Percentage' : rawType === 'fixed' ? 'Fixed' : (tax?.type || 'Percentage');
+  return {
+    ...tax,
+    type: uiType,
+    createdAt: tax?.createdAt ?? tax?.created_at ?? '',
+  };
+};
+
+const normalizeDiscount = (discount) => ({
+  ...discount,
+  minPurchase: Number(discount?.minPurchase ?? discount?.min_purchase ?? 0),
+  minQuantity: Number(discount?.minQuantity ?? discount?.min_quantity ?? 0),
+  startDate: discount?.startDate ?? discount?.start_date ?? '',
+  endDate: discount?.endDate ?? discount?.end_date ?? '',
+  usageLimit: Number(discount?.usageLimit ?? discount?.usage_limit ?? 0),
+  applyToSubscription: Boolean(discount?.applyToSubscription ?? discount?.apply_to_subscription),
+  createdAt: discount?.createdAt ?? discount?.created_at ?? '',
+});
+
 const toProductPayload = (productData) => ({
   name: productData?.name,
   type: String(productData?.type || '').toLowerCase(),
@@ -159,10 +200,9 @@ export const useDataStore = create((set, get) => ({
     if (get().users.length > 0 && !force) return;
     set({ loadingUsers: true, error: null });
     try {
-      const res = await fetch("/api/users");
-      if (!res.ok) throw new Error("Failed to fetch users");
-      const data = await res.json();
-      set({ users: data.users || [], loadingUsers: false });
+      const response = await fetchApi('/users', { method: 'GET' });
+      const data = getPayload(response);
+      set({ users: (data.users || []).map(normalizeUser), loadingUsers: false });
     } catch (err) {
       set({ error: err.message, loadingUsers: false });
     }
@@ -170,7 +210,7 @@ export const useDataStore = create((set, get) => ({
 
   deleteUser: async (id) => {
     try {
-      await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      await fetchApi(`/users/${id}`, { method: 'DELETE' });
       set(state => ({ users: state.users.filter(u => u.id !== id) }));
       return true;
     } catch (err) {
@@ -181,14 +221,14 @@ export const useDataStore = create((set, get) => ({
   
   createUser: async (userData) => {
     try {
-      const res = await fetch('/api/users', {
+      const response = await fetchApi('/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData)
       });
-      const data = await res.json();
-      set(state => ({ users: [...state.users, data.user] }));
-      return data.user;
+      const data = getPayload(response);
+      const normalized = normalizeUser(data.user);
+      set(state => ({ users: [...state.users, normalized] }));
+      return normalized;
     } catch(err) {
       throw err;
     }
@@ -196,14 +236,14 @@ export const useDataStore = create((set, get) => ({
   
   updateUser: async (id, userData) => {
     try {
-      const res = await fetch(`/api/users/${id}`, {
+      const response = await fetchApi(`/users/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData)
       });
-      const data = await res.json();
-      set(state => ({ users: state.users.map(u => u.id === id ? data.user : u) }));
-      return data.user;
+      const data = getPayload(response);
+      const normalized = normalizeUser(data.user);
+      set(state => ({ users: state.users.map(u => u.id === id ? normalized : u) }));
+      return normalized;
     } catch(err) {
       throw err;
     }
@@ -213,10 +253,9 @@ export const useDataStore = create((set, get) => ({
     if (get().contacts.length > 0 && !force) return;
     set({ loadingContacts: true, error: null });
     try {
-      const res = await fetch("/api/contacts");
-      if (!res.ok) throw new Error("Failed to fetch contacts");
-      const data = await res.json();
-      set({ contacts: data.contacts || [], loadingContacts: false });
+      const response = await fetchApi('/contacts', { method: 'GET' });
+      const data = getPayload(response);
+      set({ contacts: (data.contacts || []).map(normalizeContact), loadingContacts: false });
     } catch (err) {
       set({ error: err.message, loadingContacts: false });
     }
@@ -224,7 +263,7 @@ export const useDataStore = create((set, get) => ({
 
   deleteContact: async (id) => {
     try {
-      await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
+      await fetchApi(`/contacts/${id}`, { method: 'DELETE' });
       set(state => ({ contacts: state.contacts.filter(c => c.id !== id) }));
       return true;
     } catch (err) {
@@ -235,14 +274,17 @@ export const useDataStore = create((set, get) => ({
   
   createContact: async (contactData) => {
     try {
-      const res = await fetch('/api/contacts', {
+      const response = await fetchApi('/contacts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contactData)
+        body: JSON.stringify({
+          ...contactData,
+          user_id: contactData?.user_id ?? contactData?.userId,
+        })
       });
-      const data = await res.json();
-      set(state => ({ contacts: [...state.contacts, data.contact] }));
-      return data.contact;
+      const data = getPayload(response);
+      const normalized = normalizeContact(data.contact);
+      set(state => ({ contacts: [...state.contacts, normalized] }));
+      return normalized;
     } catch(err) {
       throw err;
     }
@@ -250,14 +292,17 @@ export const useDataStore = create((set, get) => ({
   
   updateContact: async (id, contactData) => {
     try {
-      const res = await fetch(`/api/contacts/${id}`, {
+      const response = await fetchApi(`/contacts/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contactData)
+        body: JSON.stringify({
+          ...contactData,
+          user_id: contactData?.user_id ?? contactData?.userId,
+        })
       });
-      const data = await res.json();
-      set(state => ({ contacts: state.contacts.map(c => c.id === id ? data.contact : c) }));
-      return data.contact;
+      const data = getPayload(response);
+      const normalized = normalizeContact(data.contact);
+      set(state => ({ contacts: state.contacts.map(c => c.id === id ? normalized : c) }));
+      return normalized;
     } catch(err) {
       throw err;
     }
@@ -432,45 +477,50 @@ export const useDataStore = create((set, get) => ({
     if (get().plans.length > 0 && !force) return;
     set({ loadingPlans: true, error: null });
     try {
-      const res = await fetch('/api/plans');
-      if (!res.ok) throw new Error('Failed to fetch plans');
-      const data = await res.json();
-      set({ plans: data.plans || [], loadingPlans: false });
+      const response = await fetchApi('/plans', { method: 'GET' });
+      const data = getPayload(response);
+      set({ plans: (data.plans || []).map(normalizePlan), loadingPlans: false });
     } catch (err) {
       set({ error: err.message, loadingPlans: false });
     }
   },
 
   createPlan: async (payload) => {
-    const res = await fetch('/api/plans', {
+    const response = await fetchApi('/plans', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        billing_period: payload?.billing_period ?? payload?.billingPeriod,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        start_date: payload?.start_date ?? payload?.startDate,
+        end_date: payload?.end_date ?? payload?.endDate,
+      }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create plan');
-    set((state) => ({ plans: [...state.plans, data.plan] }));
-    return data.plan;
+    const data = getPayload(response);
+    const normalized = normalizePlan(data.plan);
+    set((state) => ({ plans: [...state.plans, normalized] }));
+    return normalized;
   },
 
   updatePlan: async (id, payload) => {
-    const res = await fetch(`/api/plans/${id}`, {
+    const response = await fetchApi(`/plans/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        billing_period: payload?.billing_period ?? payload?.billingPeriod,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        start_date: payload?.start_date ?? payload?.startDate,
+        end_date: payload?.end_date ?? payload?.endDate,
+      }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to update plan');
-    set((state) => ({ plans: state.plans.map((plan) => (plan.id === id ? data.plan : plan)) }));
-    return data.plan;
+    const data = getPayload(response);
+    const normalized = normalizePlan(data.plan);
+    set((state) => ({ plans: state.plans.map((plan) => (plan.id === id ? normalized : plan)) }));
+    return normalized;
   },
 
   deletePlan: async (id) => {
-    const res = await fetch(`/api/plans/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || 'Failed to delete plan');
-    }
+    await fetchApi(`/plans/${id}`, { method: 'DELETE' });
     set((state) => ({ plans: state.plans.filter((plan) => plan.id !== id) }));
     return true;
   },
@@ -479,45 +529,44 @@ export const useDataStore = create((set, get) => ({
     if (get().taxes.length > 0 && !force) return;
     set({ loadingTaxes: true, error: null });
     try {
-      const res = await fetch('/api/taxes');
-      if (!res.ok) throw new Error('Failed to fetch taxes');
-      const data = await res.json();
-      set({ taxes: data.taxes || [], loadingTaxes: false });
+      const response = await fetchApi('/taxes', { method: 'GET' });
+      const data = getPayload(response);
+      set({ taxes: (data.taxes || []).map(normalizeTax), loadingTaxes: false });
     } catch (err) {
       set({ error: err.message, loadingTaxes: false });
     }
   },
 
   createTax: async (payload) => {
-    const res = await fetch('/api/taxes', {
+    const response = await fetchApi('/taxes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        type: String(payload?.type || '').toLowerCase(),
+      }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create tax');
-    set((state) => ({ taxes: [...state.taxes, data.tax] }));
-    return data.tax;
+    const data = getPayload(response);
+    const normalized = normalizeTax(data.tax);
+    set((state) => ({ taxes: [...state.taxes, normalized] }));
+    return normalized;
   },
 
   updateTax: async (id, payload) => {
-    const res = await fetch(`/api/taxes/${id}`, {
+    const response = await fetchApi(`/taxes/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        type: payload?.type ? String(payload.type).toLowerCase() : payload?.type,
+      }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to update tax');
-    set((state) => ({ taxes: state.taxes.map((tax) => (tax.id === id ? data.tax : tax)) }));
-    return data.tax;
+    const data = getPayload(response);
+    const normalized = normalizeTax(data.tax);
+    set((state) => ({ taxes: state.taxes.map((tax) => (tax.id === id ? normalized : tax)) }));
+    return normalized;
   },
 
   deleteTax: async (id) => {
-    const res = await fetch(`/api/taxes/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || 'Failed to delete tax');
-    }
+    await fetchApi(`/taxes/${id}`, { method: 'DELETE' });
     set((state) => ({ taxes: state.taxes.filter((tax) => tax.id !== id) }));
     return true;
   },
@@ -526,45 +575,56 @@ export const useDataStore = create((set, get) => ({
     if (get().discounts.length > 0 && !force) return;
     set({ loadingDiscounts: true, error: null });
     try {
-      const res = await fetch('/api/discounts');
-      if (!res.ok) throw new Error('Failed to fetch discounts');
-      const data = await res.json();
-      set({ discounts: data.discounts || [], loadingDiscounts: false });
+      const response = await fetchApi('/discounts', { method: 'GET' });
+      const data = getPayload(response);
+      set({ discounts: (data.discounts || []).map(normalizeDiscount), loadingDiscounts: false });
     } catch (err) {
       set({ error: err.message, loadingDiscounts: false });
     }
   },
 
   createDiscount: async (payload) => {
-    const res = await fetch('/api/discounts', {
+    const response = await fetchApi('/discounts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        min_purchase: payload?.min_purchase ?? payload?.minPurchase,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        start_date: payload?.start_date ?? payload?.startDate,
+        end_date: payload?.end_date ?? payload?.endDate,
+        usage_limit: payload?.usage_limit ?? payload?.usageLimit,
+        apply_to_subscription: payload?.apply_to_subscription ?? payload?.applyToSubscription,
+        product_ids: payload?.product_ids ?? payload?.productIds,
+      }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create discount');
-    set((state) => ({ discounts: [...state.discounts, data.discount] }));
-    return data.discount;
+    const data = getPayload(response);
+    const normalized = normalizeDiscount(data.discount);
+    set((state) => ({ discounts: [...state.discounts, normalized] }));
+    return normalized;
   },
 
   updateDiscount: async (id, payload) => {
-    const res = await fetch(`/api/discounts/${id}`, {
+    const response = await fetchApi(`/discounts/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        min_purchase: payload?.min_purchase ?? payload?.minPurchase,
+        min_quantity: payload?.min_quantity ?? payload?.minQuantity,
+        start_date: payload?.start_date ?? payload?.startDate,
+        end_date: payload?.end_date ?? payload?.endDate,
+        usage_limit: payload?.usage_limit ?? payload?.usageLimit,
+        apply_to_subscription: payload?.apply_to_subscription ?? payload?.applyToSubscription,
+        product_ids: payload?.product_ids ?? payload?.productIds,
+      }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to update discount');
-    set((state) => ({ discounts: state.discounts.map((discount) => (discount.id === id ? data.discount : discount)) }));
-    return data.discount;
+    const data = getPayload(response);
+    const normalized = normalizeDiscount(data.discount);
+    set((state) => ({ discounts: state.discounts.map((discount) => (discount.id === id ? normalized : discount)) }));
+    return normalized;
   },
 
   deleteDiscount: async (id) => {
-    const res = await fetch(`/api/discounts/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || 'Failed to delete discount');
-    }
+    await fetchApi(`/discounts/${id}`, { method: 'DELETE' });
     set((state) => ({ discounts: state.discounts.filter((discount) => discount.id !== id) }));
     return true;
   },
