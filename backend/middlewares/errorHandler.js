@@ -2,6 +2,8 @@
  * Global error handling middleware.
  * Must be added as the last middleware in Express.
  */
+const { sendError } = require("../utils/apiResponse");
+
 const errorHandler = (err, req, res, next) => {
   console.error("🔥 Error:", err.message);
 
@@ -11,41 +13,26 @@ const errorHandler = (err, req, res, next) => {
 
   // Duplicate key (unique constraint violation in PostgreSQL)
   if (err.code === "23505") {
-    return res.status(409).json({
-      success: false,
-      message: "A record with this value already exists.",
-    });
+    return sendError(res, 409, "A record with this value already exists.");
   }
 
   // Foreign key violation
   if (err.code === "23503") {
-    return res.status(400).json({
-      success: false,
-      message: "Referenced record does not exist.",
-    });
+    return sendError(res, 400, "Referenced record does not exist.");
   }
 
   // JWT errors
   if (err.name === "JsonWebTokenError") {
-    return res.status(401).json({
-      success: false,
-      message: "Invalid token.",
-    });
+    return sendError(res, 401, "Invalid token.");
   }
 
   if (err.name === "TokenExpiredError") {
-    return res.status(401).json({
-      success: false,
-      message: "Token has expired.",
-    });
+    return sendError(res, 401, "Token has expired.");
   }
 
   // Default server error
   const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
-    success: false,
-    message: err.message || "Internal Server Error",
-  });
+  return sendError(res, statusCode, err.message || "Internal Server Error");
 };
 
 /**
