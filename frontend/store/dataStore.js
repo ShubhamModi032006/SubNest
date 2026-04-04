@@ -8,6 +8,8 @@ export const useDataStore = create((set, get) => ({
   plans: [],
   taxes: [],
   discounts: [],
+  quotationTemplates: [],
+  invoices: [],
   loadingUsers: false,
   loadingContacts: false,
   loadingProducts: false,
@@ -15,6 +17,8 @@ export const useDataStore = create((set, get) => ({
   loadingPlans: false,
   loadingTaxes: false,
   loadingDiscounts: false,
+  loadingQuotationTemplates: false,
+  loadingInvoices: false,
   subscriptionDraft: {
     customerId: "",
     customerType: "user",
@@ -434,5 +438,106 @@ export const useDataStore = create((set, get) => ({
     }
     set((state) => ({ discounts: state.discounts.filter((discount) => discount.id !== id) }));
     return true;
+  },
+
+  fetchQuotationTemplates: async (force = false) => {
+    if (get().quotationTemplates.length > 0 && !force) return;
+    set({ loadingQuotationTemplates: true, error: null });
+    try {
+      const res = await fetch('/api/quotation-templates');
+      if (!res.ok) throw new Error('Failed to fetch quotation templates');
+      const data = await res.json();
+      set({ quotationTemplates: data.templates || [], loadingQuotationTemplates: false });
+    } catch (err) {
+      set({ error: err.message, loadingQuotationTemplates: false });
+    }
+  },
+
+  createQuotationTemplate: async (payload) => {
+    const res = await fetch('/api/quotation-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to create quotation template');
+    set((state) => ({ quotationTemplates: [data.template, ...state.quotationTemplates] }));
+    return data.template;
+  },
+
+  updateQuotationTemplate: async (id, payload) => {
+    const res = await fetch(`/api/quotation-templates/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to update quotation template');
+    set((state) => ({
+      quotationTemplates: state.quotationTemplates.map((item) =>
+        item.id === id ? data.template : item
+      ),
+    }));
+    return data.template;
+  },
+
+  deleteQuotationTemplate: async (id) => {
+    const res = await fetch(`/api/quotation-templates/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || 'Failed to delete quotation template');
+    }
+    set((state) => ({
+      quotationTemplates: state.quotationTemplates.filter((item) => item.id !== id),
+    }));
+    return true;
+  },
+
+  fetchInvoices: async (force = false) => {
+    if (get().invoices.length > 0 && !force) return;
+    set({ loadingInvoices: true, error: null });
+    try {
+      const res = await fetch('/api/invoices');
+      if (!res.ok) throw new Error('Failed to fetch invoices');
+      const data = await res.json();
+      set({ invoices: data.invoices || [], loadingInvoices: false });
+    } catch (err) {
+      set({ error: err.message, loadingInvoices: false });
+    }
+  },
+
+  fetchInvoiceById: async (id) => {
+    const res = await fetch(`/api/invoices/${id}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch invoice');
+    set((state) => {
+      const exists = state.invoices.some((inv) => inv.id === id);
+      return {
+        invoices: exists
+          ? state.invoices.map((inv) => (inv.id === id ? data.invoice : inv))
+          : [data.invoice, ...state.invoices],
+      };
+    });
+    return data.invoice;
+  },
+
+  runInvoiceAction: async (id, action) => {
+    const res = await fetch(`/api/invoices/${id}/${action}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || `Failed to ${action} invoice`);
+    set((state) => ({
+      invoices: state.invoices.map((item) => (item.id === id ? data.invoice : item)),
+    }));
+    return data.invoice;
+  },
+
+  createInvoiceFromSubscription: async (subscriptionId) => {
+    const res = await fetch(`/api/subscriptions/${subscriptionId}/create-invoice`, {
+      method: 'POST',
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to create invoice from subscription');
+    set((state) => ({ invoices: [data.invoice, ...state.invoices] }));
+    return data.invoice;
   },
 }));

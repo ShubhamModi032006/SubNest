@@ -44,17 +44,20 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     contacts,
     products,
     plans,
+    quotationTemplates,
     taxes,
     discounts,
     fetchUsers,
     fetchContacts,
     fetchProducts,
     fetchPlans,
+    fetchQuotationTemplates,
     fetchTaxes,
     fetchDiscounts,
     createSubscription,
     updateSubscription,
     runSubscriptionAction,
+    createInvoiceFromSubscription,
     setSubscriptionDraft,
     resetSubscriptionDraft,
     subscriptionDraft,
@@ -93,9 +96,10 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     fetchContacts();
     fetchProducts();
     fetchPlans();
+    fetchQuotationTemplates();
     fetchTaxes();
     fetchDiscounts();
-  }, [fetchUsers, fetchContacts, fetchProducts, fetchPlans, fetchTaxes, fetchDiscounts]);
+  }, [fetchUsers, fetchContacts, fetchProducts, fetchPlans, fetchQuotationTemplates, fetchTaxes, fetchDiscounts]);
 
   useEffect(() => {
     if (mode === "create" && !form.recurringPlanId && plans.length > 0) {
@@ -116,6 +120,36 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     const [customerType, customerId] = value.split(":");
     const label = customerOptions.find((item) => item.value === value)?.label || "";
     setForm((prev) => ({ ...prev, customerType, customerId, customerLabel: label }));
+  };
+
+  const onQuotationTemplateChange = (templateId) => {
+    const template = quotationTemplates.find((item) => item.id === templateId);
+    updateForm("quotationTemplate", templateId);
+
+    if (!template) return;
+
+    const plan = plans.find((item) => item.id === template.recurringPlanId);
+    if (plan) {
+      updateForm("recurringPlanId", plan.id);
+      updateForm("recurringPlanLabel", plan.name);
+    }
+
+    const mappedLines = (template.productLines || []).map((line) => {
+      const product = products.find((p) => p.id === line.productId);
+      return {
+        id: `line_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        productId: line.productId,
+        productName: product?.name || line.productName || "",
+        variantId: "",
+        quantity: line.quantity || 1,
+        discountType: "Fixed",
+        discountValue: "",
+      };
+    });
+
+    if (mappedLines.length > 0) {
+      setOrderLines(mappedLines);
+    }
   };
 
   const validate = () => {
@@ -205,6 +239,16 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
     setForm((prev) => ({ ...prev, status: updated.status }));
   };
 
+  const createInvoice = async () => {
+    if (!initialSubscription?.id) return;
+    try {
+      const invoice = await createInvoiceFromSubscription(initialSubscription.id);
+      router.push(`/dashboard/invoices/${invoice.id}`);
+    } catch (err) {
+      setError(err.message || "Failed to create invoice");
+    }
+  };
+
   const cancelSubscription = async () => {
     if (!initialSubscription?.id) return;
     if (!window.confirm("Cancel and close this subscription?")) return;
@@ -235,7 +279,7 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
           <Button onClick={saveDraft} disabled={saving || !canManage}>Save (Draft)</Button>
           <Button variant="secondary" onClick={sendQuotation} disabled={saving || !canSend(selectedStatus)}>Send (Quotation)</Button>
           <Button variant="secondary" onClick={confirmSubscription} disabled={saving || !initialSubscription?.id || !canConfirm(selectedStatus)}>Confirm</Button>
-          <Button variant="outline" disabled>Create Invoice</Button>
+          <Button variant="outline" onClick={createInvoice} disabled={saving || !initialSubscription?.id}>Create Invoice</Button>
           <Button variant="outline" onClick={cancelSubscription} disabled={saving || !initialSubscription?.id || selectedStatus === "Closed"}>Cancel</Button>
           <Button variant="outline" onClick={closeSubscription} disabled={saving || !initialSubscription?.id || !canClose(selectedStatus)}>Close</Button>
           <Button variant="outline" onClick={renewSubscription} disabled={saving || !initialSubscription?.id || !canRenew(selectedStatus)}>Renew</Button>
@@ -265,7 +309,17 @@ export function SubscriptionEditor({ mode = "create", initialSubscription }) {
               </div>
               <div className="space-y-2">
                 <Label>Quotation Template (optional)</Label>
-                <Input value={form.quotationTemplate || ""} onChange={(e) => updateForm("quotationTemplate", e.target.value)} disabled={!canManage} />
+                <select
+                  value={form.quotationTemplate || ""}
+                  onChange={(e) => onQuotationTemplateChange(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm"
+                  disabled={!canManage}
+                >
+                  <option value="">Select template</option>
+                  {quotationTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>{template.name}</option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label>Recurring Plan</Label>
