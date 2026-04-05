@@ -38,7 +38,7 @@ const corsOptions = {
 // Middlewares
 // ─────────────────────────────────────────────
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+app.options("/{*any}", cors(corsOptions));
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
