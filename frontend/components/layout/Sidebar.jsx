@@ -18,6 +18,7 @@ import {
   BadgePercent,
   FileText,
   ReceiptText,
+  History,
   ShieldCheck,
   ChevronDown,
 } from "lucide-react";
@@ -31,6 +32,7 @@ import {
 const menuItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["admin", "internal"] },
   { name: "Subscriptions", href: "/dashboard/subscriptions", icon: CreditCard, roles: ["admin", "internal"] },
+  { name: "Subscriptions History", href: "/dashboard/subscriptions/history", icon: History, roles: ["admin", "internal"] },
   { name: "Invoices", href: "/dashboard/invoices", icon: ReceiptText, roles: ["admin", "internal"] },
   { name: "Products", href: "/dashboard/products", icon: Box, roles: ["admin", "internal"] },
   { name: "Contacts", href: "/dashboard/contacts", icon: Users, roles: ["admin", "internal"] },

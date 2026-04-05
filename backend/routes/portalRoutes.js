@@ -7,6 +7,7 @@ const {
   purchasePortalSubscription,
   createOrder,
   previewOrderPricing,
+  getPortalPurchaseHistory,
   getMyOrders,
   getMyOrderById,
   getMySubscriptions,
@@ -23,6 +24,7 @@ router.post("/portal/subscriptions/:id/purchase", protect, allowRoles("admin", "
 
 router.post("/orders", protect, allowRoles("admin", "internal", "user"), createOrder);
 router.post("/orders/preview", protect, allowRoles("admin", "internal", "user"), previewOrderPricing);
+router.get("/portal/purchases/history", protect, allowRoles("admin", "internal"), getPortalPurchaseHistory);
 
 router.get("/my/orders", protect, allowRoles("admin", "internal", "user"), getMyOrders);
 router.get("/my/orders/:id", protect, allowRoles("admin", "internal", "user"), getMyOrderById);
