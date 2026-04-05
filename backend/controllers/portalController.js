@@ -712,7 +712,16 @@ const createOrder = async (req, res, next) => {
     });
 
     if (result.duplicate) {
-      return sendSuccess(res, 200, { order: result.order }, "Duplicate order prevented. Existing order returned.");
+      const duplicatePayload = {
+        order: result.order,
+        subscription: result.order?.subscription || null,
+        invoice:
+          result.order?.invoice ||
+          (result.order?.invoiceId
+            ? { id: result.order.invoiceId }
+            : null),
+      };
+      return sendSuccess(res, 200, duplicatePayload, "Duplicate order prevented. Existing order returned.");
     }
 
     invalidateTag("reports");

@@ -13,6 +13,22 @@ import { useAuthStore } from "@/store/authStore";
 
 const money = (value) => `$${Number(value || 0).toFixed(2)}`;
 
+const extractInvoiceId = (orderData) => {
+  const payload = orderData?.data || {};
+  return (
+    payload?.invoice?.id ||
+    payload?.invoice_id ||
+    payload?.order?.invoice?.id ||
+    payload?.order?.invoiceId ||
+    null
+  );
+};
+
+const extractSessionUrl = (paymentSession) => {
+  const payload = paymentSession?.data || {};
+  return payload?.session?.url || payload?.url || null;
+};
+
 export default function CheckoutPage() {
   const router = useRouter();
   const items = useCartStore((state) => state.items);
@@ -68,18 +84,14 @@ export default function CheckoutPage() {
         }),
       });
 
-      const orderData = orderResponse?.data ?? orderResponse ?? {};
-      const invoiceId =
-        orderData?.invoice?.id ||
-        orderData?.order?.invoice?.id ||
-        orderData?.order?.invoiceId;
-
+          const orderData = orderResponse?.data ? orderResponse : { data: orderResponse };
+      const invoiceId = extractInvoiceId(orderData);
       if (!invoiceId) {
-        throw new Error("Failed to create invoice");
+        throw new Error("Failed to create invoice for checkout.");
       }
 
       // Create Stripe payment session
-      const paymentResponse = await fetchApi("/payments/create-session", {
+      const paymentSession = await fetchApi("/payments/create-session", {
         method: "POST",
         body: JSON.stringify({
           invoice_id: invoiceId,
@@ -88,8 +100,7 @@ export default function CheckoutPage() {
         }),
       });
 
-      const paymentSession = paymentResponse?.data ?? paymentResponse ?? {};
-      const sessionUrl = paymentSession?.session?.url;
+      const sessionUrl = extractSessionUrl(paymentSession);
       if (sessionUrl) {
         // Redirect to Stripe Checkout
         window.location.href = sessionUrl;

@@ -97,10 +97,19 @@ const createPaymentSession = async (req, res, next) => {
 
       const invoice = invoiceResult.rows[0];
       ensureInvoiceAccess(invoice, req.user);
-      if (invoice.status !== "confirmed") {
-        const error = new Error("Only confirmed invoices can be paid.");
+      if (!["draft", "confirmed"].includes(invoice.status)) {
+        const error = new Error("Only draft or confirmed invoices can be paid.");
         error.statusCode = 400;
         throw error;
+      }
+
+      if (invoice.status === "draft") {
+        await client.query(
+          `UPDATE invoices
+           SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, NOW())
+           WHERE id = $1`,
+          [invoiceId]
+        );
       }
 
       if (invoice.paid_at || invoice.status === "paid") {
