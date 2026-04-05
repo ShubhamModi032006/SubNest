@@ -502,6 +502,13 @@ const getSubscriptions = async (req, res, next) => {
     const status = normalizeText(req.query.status);
     const customerId = normalizeText(req.query.customer || req.query.customer_id);
     const customerType = req.query.customer_type ? String(req.query.customer_type).trim() : undefined;
+    const includePortal = String(req.query.include_portal || "false").toLowerCase() === "true";
+    const creatorRoles = req.query.creator_roles
+      ? String(req.query.creator_roles)
+          .split(",")
+          .map((role) => role.trim().toLowerCase())
+          .filter((role) => ["admin", "internal"].includes(role))
+      : [];
 
     const conditions = [];
     const params = [];
@@ -527,6 +534,16 @@ const getSubscriptions = async (req, res, next) => {
       }
     }
 
+    if (creatorRoles.length > 0) {
+      conditions.push(`EXISTS (SELECT 1 FROM users creator_filter WHERE creator_filter.id = s.created_by AND LOWER(creator_filter.role) = ANY($${params.length + 1}::text[]))`);
+      params.push(creatorRoles);
+    }
+
+    if (!includePortal) {
+      // Keep dashboard subscriptions focused on admin/internal-managed records.
+      conditions.push(`(s.created_by IS NULL OR EXISTS (SELECT 1 FROM users creator_scope WHERE creator_scope.id = s.created_by AND LOWER(creator_scope.role) IN ('admin', 'internal')))`);
+    }
+
     params.push(limit);
     const limitRef = `$${params.length}`;
     params.push(offset);
@@ -536,18 +553,21 @@ const getSubscriptions = async (req, res, next) => {
     const countParams = params.slice(0, params.length - 2);
 
     const data = await cached(
-      `subscriptions:${page}:${limit}:${status || "_"}:${customerId || "_"}:${customerType || "_"}`,
+      `subscriptions:${page}:${limit}:${status || "_"}:${customerId || "_"}:${customerType || "_"}:${creatorRoles.join("|") || "_"}:${includePortal ? "1" : "0"}`,
       async () => {
         const [subscriptionResult, countResult] = await Promise.all([
           pool.query(
-            `SELECT s.id, s.subscription_number, s.customer_user_id, s.customer_contact_id, s.customer_type, s.plan_id, s.start_date, s.expiration_date, s.payment_terms, s.status, s.created_at,
+            `SELECT s.id, s.subscription_number, s.is_public, s.created_by, s.customer_user_id, s.customer_contact_id, s.customer_type, s.plan_id, s.start_date, s.expiration_date, s.payment_terms, s.status, s.created_at,
                     u.name AS user_name, u.email AS user_email,
                     c.name AS contact_name, c.email AS contact_email,
-                    p.name AS plan_name
+                    p.name AS plan_name,
+                    creator.name AS creator_name,
+                    LOWER(creator.role) AS creator_role
              FROM subscriptions s
              LEFT JOIN users u ON s.customer_user_id = u.id
              LEFT JOIN contacts c ON s.customer_contact_id = c.id
              LEFT JOIN plans p ON s.plan_id = p.id
+             LEFT JOIN users creator ON s.created_by = creator.id
              ${whereClause}
              ORDER BY s.created_at DESC
              LIMIT ${limitRef} OFFSET ${offsetRef}`,
@@ -569,6 +589,8 @@ const getSubscriptions = async (req, res, next) => {
       subscription_number: row.subscription_number,
       is_public: Boolean(row.is_public),
       created_by: row.created_by,
+      created_by_name: row.creator_name,
+      created_by_role: row.creator_role,
       customer_id: row.customer_type === "user" ? row.customer_user_id : row.customer_contact_id,
       customer_type: row.customer_type,
       customer:

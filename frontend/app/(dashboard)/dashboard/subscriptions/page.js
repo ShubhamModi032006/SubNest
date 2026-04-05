@@ -7,7 +7,7 @@ import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SkeletonTableRows } from "@/components/ui/skeleton";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, History } from "lucide-react";
 
 const PAGE_SIZE = 8;
 const statuses = ["All", "Draft", "Quotation", "Quotation Sent", "Confirmed", "Active", "Closed"];
@@ -53,9 +53,14 @@ export default function SubscriptionsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Subscriptions</h1>
           <p className="mt-2 text-muted-foreground">Track subscription lifecycle, quotation and order management.</p>
         </div>
-        <Link href="/dashboard/subscriptions/new">
-          <Button className="gap-2"><Plus className="h-4 w-4" /> Create Subscription</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/dashboard/subscriptions/history">
+            <Button variant="outline" className="gap-2"><History className="h-4 w-4" /> History</Button>
+          </Link>
+          <Link href="/dashboard/subscriptions/new">
+            <Button className="gap-2"><Plus className="h-4 w-4" /> Create Subscription</Button>
+          </Link>
+        </div>
       </div>
 
       {role === "internal" ? (

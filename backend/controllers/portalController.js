@@ -777,6 +777,45 @@ const getMyOrders = async (req, res, next) => {
   }
 };
 
+const getPortalPurchaseHistory = async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT o.id, o.user_id, o.total_amount, o.status AS order_status, o.subscription_id, o.invoice_id, o.created_at,
+              u.name AS buyer_name, u.email AS buyer_email, LOWER(u.role) AS buyer_role,
+              s.subscription_number, s.status AS subscription_status,
+              p.name AS plan_name
+       FROM orders o
+       JOIN users u ON u.id = o.user_id
+       LEFT JOIN subscriptions s ON s.id = o.subscription_id
+       LEFT JOIN plans p ON p.id = s.plan_id
+       WHERE LOWER(COALESCE(u.role, '')) = 'user'
+       ORDER BY o.created_at DESC
+       LIMIT 500`
+    );
+
+    const history = result.rows.map((row) => ({
+      id: row.id,
+      orderNumber: `ORD-${String(row.id).slice(0, 8).toUpperCase()}`,
+      buyerId: row.user_id,
+      buyerName: row.buyer_name,
+      buyerEmail: row.buyer_email,
+      buyerRole: row.buyer_role,
+      subscriptionId: row.subscription_id,
+      subscriptionNumber: row.subscription_number,
+      planName: row.plan_name,
+      orderStatus: row.order_status,
+      subscriptionStatus: row.subscription_status,
+      totalAmount: Number(row.total_amount || 0),
+      invoiceId: row.invoice_id,
+      purchasedAt: row.created_at,
+    }));
+
+    return sendSuccess(res, 200, { history }, "Portal purchase history fetched successfully.");
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getMyOrderById = async (req, res, next) => {
   try {
     const userId = String(req.user?.id || "").trim();
@@ -1073,6 +1112,7 @@ module.exports = {
   purchasePortalSubscription,
   createOrder,
   previewOrderPricing,
+  getPortalPurchaseHistory,
   getMyOrders,
   getMyOrderById,
   getMySubscriptions,

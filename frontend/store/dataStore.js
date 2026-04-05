@@ -119,6 +119,9 @@ const normalizeSubscription = (subscription) => ({
   startDate: subscription?.startDate ?? subscription?.start_date ?? '',
   expirationDate: subscription?.expirationDate ?? subscription?.expiration_date ?? '',
   paymentTerms: subscription?.paymentTerms ?? subscription?.payment_terms ?? '',
+  createdBy: subscription?.createdBy ?? subscription?.created_by ?? '',
+  createdByName: subscription?.createdByName ?? subscription?.created_by_name ?? '',
+  createdByRole: String(subscription?.createdByRole ?? subscription?.created_by_role ?? '').toLowerCase(),
   status: toUiSubscriptionStatus(subscription?.status),
   plan: subscription?.plan
     ? {
@@ -187,6 +190,38 @@ const normalizeInvoice = (invoice) => ({
     discountAmount: Number(line?.discountAmount ?? line?.discount ?? 0),
     taxAmount: Number(line?.taxAmount ?? line?.tax ?? 0),
     total: Number(line?.total ?? 0),
+  })),
+});
+
+const normalizeQuotationTemplate = (template) => ({
+  id: template?.id,
+  name: template?.name || '',
+  status: template?.status || 'active',
+  description: template?.description || '',
+  validityDays: Number(template?.validityDays ?? template?.validity_days ?? 1),
+  recurringPlanId: template?.recurringPlanId ?? template?.plan?.id ?? template?.plan_id ?? '',
+  recurringPlanLabel: template?.recurringPlanLabel ?? template?.plan?.name ?? '',
+  productLines: (template?.productLines || template?.lines || []).map((line) => ({
+    id: line?.id,
+    productId: line?.productId ?? line?.product_id ?? '',
+    productName: line?.productName ?? line?.product_name ?? '',
+    quantity: Number(line?.quantity ?? 1),
+    description: line?.description || '',
+    discount: line?.discount,
+    tax: line?.tax,
+  })),
+  createdAt: template?.createdAt ?? template?.created_at ?? '',
+  updatedAt: template?.updatedAt ?? template?.updated_at ?? template?.created_at ?? '',
+});
+
+const toQuotationTemplatePayload = (payload) => ({
+  name: payload?.name,
+  validity_days: Number(payload?.validityDays ?? payload?.validity_days ?? 30),
+  plan_id: payload?.recurringPlanId ?? payload?.plan_id,
+  lines: (payload?.productLines || payload?.lines || []).map((line) => ({
+    product_id: line?.productId ?? line?.product_id,
+    quantity: Number(line?.quantity ?? 1),
+    description: line?.description || null,
   })),
 });
 
@@ -686,49 +721,42 @@ export const useDataStore = create((set, get) => ({
     if (get().quotationTemplates.length > 0 && !force) return;
     set({ loadingQuotationTemplates: true, error: null });
     try {
-      const res = await fetch('/api/quotation-templates');
-      if (!res.ok) throw new Error('Failed to fetch quotation templates');
-      const data = await res.json();
-      set({ quotationTemplates: data.templates || [], loadingQuotationTemplates: false });
+      const response = await fetchApi('/quotation-templates', { method: 'GET' });
+      const data = getPayload(response);
+      set({ quotationTemplates: (data.templates || []).map(normalizeQuotationTemplate), loadingQuotationTemplates: false });
     } catch (err) {
       set({ error: err.message, loadingQuotationTemplates: false });
     }
   },
 
   createQuotationTemplate: async (payload) => {
-    const res = await fetch('/api/quotation-templates', {
+    const response = await fetchApi('/quotation-templates', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(toQuotationTemplatePayload(payload)),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create quotation template');
-    set((state) => ({ quotationTemplates: [data.template, ...state.quotationTemplates] }));
-    return data.template;
+    const data = getPayload(response);
+    const normalized = normalizeQuotationTemplate(data.template);
+    set((state) => ({ quotationTemplates: [normalized, ...state.quotationTemplates] }));
+    return normalized;
   },
 
   updateQuotationTemplate: async (id, payload) => {
-    const res = await fetch(`/api/quotation-templates/${id}`, {
+    const response = await fetchApi(`/quotation-templates/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(toQuotationTemplatePayload(payload)),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to update quotation template');
+    const data = getPayload(response);
+    const normalized = normalizeQuotationTemplate(data.template);
     set((state) => ({
       quotationTemplates: state.quotationTemplates.map((item) =>
-        item.id === id ? data.template : item
+        item.id === id ? normalized : item
       ),
     }));
-    return data.template;
+    return normalized;
   },
 
   deleteQuotationTemplate: async (id) => {
-    const res = await fetch(`/api/quotation-templates/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || 'Failed to delete quotation template');
-    }
+    await fetchApi(`/quotation-templates/${id}`, { method: 'DELETE' });
     set((state) => ({
       quotationTemplates: state.quotationTemplates.filter((item) => item.id !== id),
     }));

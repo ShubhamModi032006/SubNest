@@ -10,6 +10,7 @@ export default function NewQuotationTemplatePage() {
   const role = useAuthStore((state) => state.user?.role);
   const products = useDataStore((state) => state.products);
   const plans = useDataStore((state) => state.plans);
+  const fetchProducts = useDataStore((state) => state.fetchProducts);
   const fetchPlans = useDataStore((state) => state.fetchPlans);
   const createQuotationTemplate = useDataStore((state) => state.createQuotationTemplate);
 
@@ -30,8 +31,9 @@ export default function NewQuotationTemplatePage() {
   );
 
   useEffect(() => {
+    fetchProducts();
     fetchPlans();
-  }, [fetchPlans]);
+  }, [fetchProducts, fetchPlans]);
 
   const addLine = () => {
     setLines((prev) => [...prev, { id: crypto.randomUUID(), productId: "", quantity: 1, discountValue: 0, taxRate: 0 }]);

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
+import { canAccessDashboard } from "@/lib/rbac/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff } from "lucide-react";
@@ -48,7 +49,7 @@ export default function LoginPage() {
     try {
       const data = await login(formData.email, formData.password);
       const role = String(data?.user?.role || "user").toLowerCase();
-      router.push(role === "admin" || role === "internal" ? "/dashboard" : "/");
+      router.push(canAccessDashboard(role) ? "/dashboard" : "/");
     } catch (err) {
       setError(err?.message || "An unexpected error occurred");
     }

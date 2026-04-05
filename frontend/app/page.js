@@ -1,21 +1,125 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/authStore";
+import { canAccessDashboard } from "@/lib/rbac/permissions";
+import { PortalShell } from "@/components/portal/PortalShell";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
   CheckCircle2,
   Sparkles,
-  Zap,
+  ShoppingBag,
   BarChart3,
   Lock,
   Workflow,
   TrendingUp,
   Shield,
   Clock,
+  Repeat,
 } from "lucide-react";
 
 export default function Home() {
+  const router = useRouter();
+  const { token, user } = useAuthStore();
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const persistApi = useAuthStore.persist;
+
+    if (!persistApi) {
+      setHydrated(true);
+      return undefined;
+    }
+
+    const hasHydrated = typeof persistApi.hasHydrated === "function" ? persistApi.hasHydrated() : true;
+    setHydrated(Boolean(hasHydrated));
+
+    if (typeof persistApi.onFinishHydration === "function") {
+      const unsubscribe = persistApi.onFinishHydration(() => {
+        setHydrated(true);
+      });
+      return unsubscribe;
+    }
+
+    return undefined;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || !token) return;
+
+    const role = String(user?.role || "user").toLowerCase();
+    if (canAccessDashboard(role)) {
+      router.replace("/dashboard");
+    }
+  }, [hydrated, token, user, router]);
+
+  if (!hydrated) {
+    return null;
+  }
+
+  const currentRole = String(user?.role || "user").toLowerCase();
+  const isPortalUser = Boolean(token) && !canAccessDashboard(currentRole);
+
+  if (isPortalUser) {
+    return (
+      <PortalShell
+        title={`Welcome back, ${user?.name || "there"}`}
+        subtitle="Your subscription cockpit: discover plans, manage active subscriptions, and stay billing-ready."
+      >
+        <section>
+          <div className="grid gap-6 lg:grid-cols-3">
+            <Link href="/shop" className="group rounded-3xl border border-border/50 bg-card/70 p-7 shadow-xl transition hover:-translate-y-1 hover:border-cyan-300/50 hover:bg-card/90 lg:col-span-2">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-300">
+                <ShoppingBag className="h-6 w-6" />
+            </div>
+              <h3 className="mt-6 text-2xl font-bold tracking-tight">Subscription Shop</h3>
+              <p className="mt-3 max-w-xl text-sm text-muted-foreground">
+                Browse curated public subscriptions, compare terms clearly, and add the right plan to cart in seconds.
+              </p>
+              <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-cyan-300">
+                Explore plans <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+              </div>
+            </Link>
+
+            <div className="rounded-3xl border border-border/50 bg-card/70 p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Quick Actions</p>
+              <div className="mt-4 space-y-3">
+                <Link href="/cart" className="flex items-center justify-between rounded-xl border border-border/50 bg-background/40 px-4 py-3 text-sm font-medium transition hover:border-cyan-300/40 hover:bg-background/70">
+                  Open Cart
+                  <ArrowRight className="h-4 w-4 text-cyan-300" />
+                </Link>
+                <Link href="/my-account" className="flex items-center justify-between rounded-xl border border-border/50 bg-background/40 px-4 py-3 text-sm font-medium transition hover:border-cyan-300/40 hover:bg-background/70">
+                  View Account
+                  <ArrowRight className="h-4 w-4 text-cyan-300" />
+                </Link>
+                <Link href="/my-invoices" className="flex items-center justify-between rounded-xl border border-border/50 bg-background/40 px-4 py-3 text-sm font-medium transition hover:border-cyan-300/40 hover:bg-background/70">
+                  Billing & Invoices
+                  <ArrowRight className="h-4 w-4 text-cyan-300" />
+                </Link>
+              </div>
+            </div>
+
+            <Link href="/my-subscriptions" className="group rounded-3xl border border-border/50 bg-card/70 p-7 shadow-xl transition hover:-translate-y-1 hover:border-cyan-300/50 hover:bg-card/90 lg:col-span-2">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-300">
+                <Repeat className="h-6 w-6" />
+              </div>
+              <h3 className="mt-6 text-2xl font-bold tracking-tight">My Subscriptions</h3>
+              <p className="mt-3 max-w-xl text-sm text-muted-foreground">
+                Monitor lifecycle stages, renewal dates, and order progress from a single timeline-friendly workspace.
+              </p>
+              <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-blue-300">
+                Open subscriptions <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" />
+              </div>
+            </Link>
+          </div>
+        </section>
+      </PortalShell>
+    );
+  }
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
       {/* Animated background blobs */}

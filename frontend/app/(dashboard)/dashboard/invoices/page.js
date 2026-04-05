@@ -7,7 +7,7 @@ import { useAuthStore } from "@/store/authStore";
 import { Button } from "@/components/ui/button";
 import { SkeletonTableRows } from "@/components/ui/skeleton";
 import { Plus } from "lucide-react";
-import { canCreateInvoice, canTriggerInvoicePayment } from "@/lib/rbac/permissions";
+import { canCreateInvoice } from "@/lib/rbac/permissions";
 
 const statusStyle = {
   draft: "bg-slate-200 text-slate-700",
@@ -34,7 +34,6 @@ export default function InvoicesPage() {
   }, [invoices, statusFilter]);
 
   const allowCreateInvoice = canCreateInvoice(role);
-  const allowTriggerPayment = canTriggerInvoicePayment(role);
 
   return (
     <section className="space-y-5">
@@ -105,11 +104,6 @@ export default function InvoicesPage() {
                     <Link href={`/dashboard/invoices/${invoice.id}`} className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/20">
                       View
                     </Link>
-                    {allowTriggerPayment && String(invoice?.status || "").toLowerCase() === "confirmed" && !invoice.isPaid ? (
-                      <Link href={`/dashboard/invoices/${invoice.id}/pay`} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">
-                        Pay
-                      </Link>
-                    ) : null}
                     </div>
                   </td>
                 </tr>

@@ -36,24 +36,11 @@ export default function MyInvoicesPage() {
     if (user?.id) loadInvoices();
   }, [user]);
 
-  const payNow = async (invoiceId) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-    const data = await fetchApi("/payments/create-session", {
-      method: "POST",
-      body: JSON.stringify({
-        invoice_id: invoiceId,
-        success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}&invoice_id=${invoiceId}&source=portal`,
-        cancel_url: `${origin}/payment/cancel?invoice_id=${invoiceId}&source=portal`,
-      }),
-    });
-    window.location.assign(data.session.url || data.session.checkoutUrl);
-  };
-
   const orderIdByInvoice = new Map(orders.map((order) => [order.invoiceId, order.id]));
 
   return (
     <ProtectedRoute>
-      <PortalShell title="My invoices" subtitle="Review invoice totals and pay or download from the portal.">
+      <PortalShell title="My invoices" subtitle="Review invoice totals and download from the portal.">
         <div className="overflow-hidden rounded-[1.75rem] border border-border/50 bg-card/70">
           <table className="w-full text-sm">
             <thead className="bg-muted/20 text-left text-xs uppercase text-muted-foreground">
@@ -79,9 +66,6 @@ export default function MyInvoicesPage() {
                     <td className="px-4 py-3 font-semibold">{money(invoice.grandTotal)}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        {String(invoice.paymentStatus || invoice.status).toLowerCase() !== "paid" ? (
-                          <Button size="sm" className="rounded-full" onClick={() => payNow(invoice.id)}>Pay Now</Button>
-                        ) : null}
                         <Button variant="secondary" size="sm" className="rounded-full" onClick={() => window.print()}>Download</Button>
                         <Link href={`/my-orders/${orderIdByInvoice.get(invoice.id) || invoice.orderId || invoice.linkedSubscriptionId}`} className="text-primary hover:underline">View order</Link>
                       </div>

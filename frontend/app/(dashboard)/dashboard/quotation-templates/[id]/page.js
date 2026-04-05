@@ -15,6 +15,7 @@ export default function QuotationTemplateDetailPage() {
   const products = useDataStore((state) => state.products);
   const plans = useDataStore((state) => state.plans);
   const quotationTemplates = useDataStore((state) => state.quotationTemplates);
+  const fetchProducts = useDataStore((state) => state.fetchProducts);
   const fetchQuotationTemplates = useDataStore((state) => state.fetchQuotationTemplates);
   const fetchPlans = useDataStore((state) => state.fetchPlans);
   const updateQuotationTemplate = useDataStore((state) => state.updateQuotationTemplate);
@@ -32,9 +33,10 @@ export default function QuotationTemplateDetailPage() {
   }
 
   useEffect(() => {
+    fetchProducts();
     fetchQuotationTemplates();
     fetchPlans();
-  }, [fetchQuotationTemplates, fetchPlans]);
+  }, [fetchProducts, fetchQuotationTemplates, fetchPlans]);
 
   useEffect(() => {
     if (template) {

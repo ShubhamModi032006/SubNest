@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
+import { canAccessDashboard } from "@/lib/rbac/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Mail, Lock, User, AlertCircle, Eye, EyeOff, CheckCircle2, ArrowRight } from "lucide-react";
@@ -71,7 +72,7 @@ export default function SignupPage() {
     try {
       const data = await signup(formData.name, formData.email, formData.password, formData.role);
       const role = String(data?.user?.role || formData.role || "user").toLowerCase();
-      router.push(role === "admin" || role === "internal" ? "/dashboard" : "/");
+      router.push(canAccessDashboard(role) ? "/dashboard" : "/");
     } catch (err) {
       setError(err?.message || "An unexpected error occurred");
     }

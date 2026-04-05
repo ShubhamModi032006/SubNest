@@ -11,8 +11,7 @@ import { InvoiceSummaryCard } from "@/components/invoices/InvoiceSummaryCard";
 import { PrintableInvoiceLayout } from "@/components/invoices/PrintableInvoiceLayout";
 import { ApprovalRequestModal } from "@/components/approvals/ApprovalRequestModal";
 import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
-import { canCancelInvoice, canTriggerInvoicePayment } from "@/lib/rbac/permissions";
-import { showError, showInfo } from "@/lib/toast";
+import { canCancelInvoice } from "@/lib/rbac/permissions";
 
 const statusStep = ["draft", "confirmed", "sent", "cancelled"];
 
@@ -24,8 +23,6 @@ export default function InvoiceDetailPage() {
   const invoices = useDataStore((state) => state.invoices);
   const fetchInvoices = useDataStore((state) => state.fetchInvoices);
   const runInvoiceAction = useDataStore((state) => state.runInvoiceAction);
-  const createPaymentSession = useDataStore((state) => state.createPaymentSession);
-  const loadingPayment = useDataStore((state) => state.loadingPayment);
   const { createRequest, creatingRequest, notification, clearNotification } = useApprovalStore();
 
   const [busyAction, setBusyAction] = useState("");
@@ -43,12 +40,6 @@ export default function InvoiceDetailPage() {
   const canManage = role === "admin" || role === "internal";
   const canCancel = canCancelInvoice(role, invoice?.status);
   const needsApprovalForCancel = !canCancel && invoice?.status !== "cancelled";
-  const canTriggerPayment = canTriggerInvoicePayment(role);
-  const isConfirmedInvoice = String(invoice?.status || "").toLowerCase() === "confirmed";
-  const allowPayNow =
-    canTriggerPayment &&
-    isConfirmedInvoice &&
-    !invoice?.isPaid;
 
   const performAction = async (action) => {
     if (!invoice) return;
@@ -86,21 +77,6 @@ export default function InvoiceDetailPage() {
   };
 
   const currentStep = statusStep.indexOf(invoice.status);
-
-  const handlePayNow = async () => {
-    if (!invoice?.id || !allowPayNow) return;
-
-    showInfo("Redirecting to payment...");
-    try {
-      const session = await createPaymentSession(invoice.id);
-      if (!session?.checkoutUrl) {
-        throw new Error("Unable to initialize Stripe checkout session");
-      }
-      window.location.assign(session.checkoutUrl);
-    } catch (err) {
-      showError(err.message || "Something went wrong");
-    }
-  };
 
   return (
     <section className="space-y-5">
@@ -174,25 +150,6 @@ export default function InvoiceDetailPage() {
 
           {invoice.status !== "cancelled" ? (
             <>
-              {canTriggerPayment && isConfirmedInvoice && !invoice.isPaid ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={loadingPayment}
-                    title="Pay invoice via Stripe"
-                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                    onClick={handlePayNow}
-                  >
-                    {loadingPayment ? (
-                      <span className="inline-flex items-center gap-2"><span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" />Redirecting...</span>
-                    ) : "Pay Now"}
-                  </button>
-                  <Link href={`/dashboard/invoices/${invoice.id}/pay`} className="rounded-lg border border-border px-3 py-2 text-sm">
-                    Review Payment
-                  </Link>
-                </div>
-              ) : null}
-
               <button
                 type="button"
                 disabled={busyAction === "cancel" || needsApprovalForCancel}
