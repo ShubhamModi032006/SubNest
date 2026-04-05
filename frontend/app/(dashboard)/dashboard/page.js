@@ -7,15 +7,24 @@ import { fetchApi } from "@/lib/api";
 import { BarChart3, Users, CreditCard } from "lucide-react";
 import { SkeletonCard } from "@/components/ui/skeleton";
 
-const RevenueTrendChart = dynamic(() => import("@/components/charts/RevenueTrendChart"), {
-  loading: () => <SkeletonCard />,
-});
-
 const SubscriptionGrowthChart = dynamic(() => import("@/components/charts/SubscriptionGrowthChart"), {
   loading: () => <SkeletonCard />,
 });
 
 const money = (value) => `$${Number(value || 0).toLocaleString()}`;
+const getPayload = (response) => response?.data ?? response ?? {};
+
+const buildSubscriptionStats = (subscriptions = []) => {
+  const counts = subscriptions.reduce((acc, subscription) => {
+    const status = String(subscription?.status || "Draft");
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+
+  return Object.entries(counts)
+    .map(([status, total]) => ({ status, total: Number(total) }))
+    .sort((left, right) => Number(right.total) - Number(left.total));
+};
 
 const AnimatedKpiCard = memo(function AnimatedKpiCard({ label, targetValue, prefix = "", suffix = "", icon: Icon, tone = "text-primary" }) {
   const [value, setValue] = useState(0);
@@ -58,31 +67,61 @@ export default function DashboardPage() {
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState({ totalRevenue: 0, activeSubscriptions: 0, paidInvoices: 0 });
-  const [trend, setTrend] = useState([]);
   const [growthStats, setGrowthStats] = useState([]);
+  const [recentInvoices, setRecentInvoices] = useState([]);
   const [publicSubscriptions, setPublicSubscriptions] = useState([]);
   const [publicLoading, setPublicLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     const loadDashboard = async () => {
       try {
-        const [summaryData, trendData, subscriptionStats, invoiceData, catalogData] = await Promise.all([
-          fetchApi("/reports/summary"),
-          fetchApi("/reports/revenue-trend"),
-          fetchApi("/reports/subscription-stats"),
-          fetchApi("/invoices"),
-          fetchApi("/portal/subscriptions").catch(() => ({ data: { subscriptions: [] } })),
+        const [invoicesResult, subscriptionsResult, statsResult, catalogResult] = await Promise.allSettled([
+          fetchApi("/invoices", { silentErrorToast: true }),
+          fetchApi("/subscriptions", { silentErrorToast: true }),
+          fetchApi("/reports/subscription-stats", { silentErrorToast: true }),
+          fetchApi("/portal/subscriptions", { silentErrorToast: true }),
         ]);
 
-        const paidInvoices = (invoiceData?.data?.invoices || []).filter((item) => String(item.status || "").toLowerCase() === "paid").length;
+        const invoices = invoicesResult.status === "fulfilled" ? (getPayload(invoicesResult.value).invoices || []) : [];
+        const subscriptions = subscriptionsResult.status === "fulfilled" ? (getPayload(subscriptionsResult.value).subscriptions || []) : [];
+        const reportStats = statsResult.status === "fulfilled" ? (getPayload(statsResult.value).stats || []) : [];
+        const portalSubscriptions = catalogResult.status === "fulfilled" ? (getPayload(catalogResult.value).subscriptions || []) : [];
+
+        const paidInvoices = invoices.filter((item) => {
+          const paymentStatus = String(item?.payment_status || item?.paymentStatus || "").toLowerCase();
+          const status = String(item?.status || "").toLowerCase();
+          return paymentStatus === "paid" || status === "paid";
+        }).length;
+
+        const totalRevenue = invoices
+          .filter((item) => String(item?.status || "").toLowerCase() !== "cancelled")
+          .reduce((sum, item) => sum + Number(item?.grandTotal ?? item?.grand_total ?? item?.total_amount ?? 0), 0);
+
+        const activeSubscriptions = subscriptions.filter((item) => {
+          const status = String(item?.status || "").toLowerCase();
+          return ["active", "confirmed", "quotation", "quotation sent"].includes(status);
+        }).length;
+
         setSummary({
-          totalRevenue: Number(summaryData?.data?.summary?.totalRevenue || 0),
-          activeSubscriptions: Number(summaryData?.data?.summary?.activeSubscriptions || 0),
+          totalRevenue: Number(totalRevenue || 0),
+          activeSubscriptions: Number(activeSubscriptions || 0),
           paidInvoices,
         });
-        setTrend(trendData?.data?.trend || []);
-        setGrowthStats(subscriptionStats?.data?.stats || []);
-        setPublicSubscriptions((catalogData?.data?.subscriptions || []).filter((subscription) => Boolean(subscription?.is_public ?? subscription?.isPublic)));
+        setGrowthStats(reportStats.length > 0 ? reportStats : buildSubscriptionStats(subscriptions));
+        setRecentInvoices(
+          [...invoices]
+            .sort((left, right) => {
+              const leftDate = new Date(left?.invoiceDate || left?.invoice_date || left?.date || left?.createdAt || left?.created_at || 0).getTime();
+              const rightDate = new Date(right?.invoiceDate || right?.invoice_date || right?.date || right?.createdAt || right?.created_at || 0).getTime();
+              return rightDate - leftDate;
+            })
+            .slice(0, 6)
+        );
+        setPublicSubscriptions(portalSubscriptions.filter((subscription) => Boolean(subscription?.is_public ?? subscription?.isPublic)));
+        setLoadError("");
+      } catch (error) {
+        setLoadError(error?.message || "Dashboard data could not be loaded right now.");
       } finally {
         setLoading(false);
         setPublicLoading(false);
@@ -107,6 +146,12 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {loadError ? (
+        <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+          {loadError}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {loading
           ? Array.from({ length: 3 }).map((_, index) => <SkeletonCard key={index} />)
@@ -124,7 +169,50 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <RevenueTrendChart data={trend} />
+        <section className="rounded-2xl border border-border/50 bg-card/70 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Live invoice activity</p>
+            <a href="/dashboard/invoices" className="text-xs font-semibold uppercase tracking-[0.14em] text-primary hover:underline">Open invoices</a>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {loading ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-14 animate-pulse rounded-xl border border-border/50 bg-background/50" />
+              ))
+            ) : recentInvoices.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border/60 p-5 text-sm text-muted-foreground">
+                No invoice activity found yet.
+              </div>
+            ) : (
+              recentInvoices.map((invoice) => {
+                const status = String(invoice?.status || "draft").toLowerCase();
+                const paid = String(invoice?.payment_status || invoice?.paymentStatus || "").toLowerCase() === "paid" || status === "paid";
+                const dueRaw = invoice?.dueDate || invoice?.due_date;
+                const dueDate = dueRaw ? new Date(dueRaw) : null;
+                const overdue = dueDate && !Number.isNaN(dueDate.getTime()) && dueDate.getTime() < Date.now() && !paid;
+                const amount = Number(invoice?.grandTotal ?? invoice?.grand_total ?? invoice?.total_amount ?? 0);
+
+                return (
+                  <article key={invoice?.id || invoice?.invoiceNumber} className="rounded-xl border border-border/50 bg-background/50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{invoice?.invoiceNumber || invoice?.invoice_number || "Invoice"}</p>
+                        <p className="text-xs text-muted-foreground">{invoice?.customerLabel || invoice?.customer || "Customer"}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-foreground">{money(amount)}</p>
+                        <p className={`text-xs ${overdue ? "text-rose-300" : paid ? "text-emerald-300" : "text-amber-300"}`}>
+                          {overdue ? "Overdue" : paid ? "Paid" : "Pending"}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </section>
         <SubscriptionGrowthChart stats={growthStats} />
       </div>
 
