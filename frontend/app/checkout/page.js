@@ -51,7 +51,7 @@ export default function CheckoutPage() {
       const livePricing = await refreshPricing();
       
       // Create invoice/order from cart
-      const orderData = await fetchApi("/orders", {
+      const orderResponse = await fetchApi("/orders", {
         method: "POST",
         body: JSON.stringify({
           customer: {
@@ -68,13 +68,18 @@ export default function CheckoutPage() {
         }),
       });
 
-      const invoiceId = orderData?.data?.invoice?.id;
+      const orderData = orderResponse?.data ?? orderResponse ?? {};
+      const invoiceId =
+        orderData?.invoice?.id ||
+        orderData?.order?.invoice?.id ||
+        orderData?.order?.invoiceId;
+
       if (!invoiceId) {
         throw new Error("Failed to create invoice");
       }
 
       // Create Stripe payment session
-      const paymentSession = await fetchApi("/payment/create-session", {
+      const paymentResponse = await fetchApi("/payments/create-session", {
         method: "POST",
         body: JSON.stringify({
           invoice_id: invoiceId,
@@ -83,7 +88,8 @@ export default function CheckoutPage() {
         }),
       });
 
-      const sessionUrl = paymentSession?.data?.session?.url;
+      const paymentSession = paymentResponse?.data ?? paymentResponse ?? {};
+      const sessionUrl = paymentSession?.session?.url;
       if (sessionUrl) {
         // Redirect to Stripe Checkout
         window.location.href = sessionUrl;

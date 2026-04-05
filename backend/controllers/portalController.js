@@ -500,7 +500,14 @@ const createOrder = async (req, res, next) => {
 
     const result = await withTransaction(async (client) => {
       const existingOrder = await client.query(
-        `SELECT id FROM orders WHERE user_id = $1 AND cart_hash = $2 AND status IN ('pending', 'confirmed') ORDER BY created_at DESC LIMIT 1`,
+        `SELECT id
+         FROM orders
+         WHERE user_id = $1
+           AND cart_hash = $2
+           AND status = 'confirmed'
+           AND invoice_id IS NOT NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
         [userId, cartHash]
       );
 
