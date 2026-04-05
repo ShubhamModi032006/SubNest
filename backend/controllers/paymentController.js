@@ -114,21 +114,15 @@ const createPaymentSession = async (req, res, next) => {
         );
       }
 
-      const existingPaymentResult = await client.query(
-        `SELECT id, stripe_session_id, status
-         FROM payments
+      // Demo-friendly behavior: always allow a new checkout session by
+      // archiving any prior unfinished/completed attempts for the same invoice.
+      await client.query(
+        `UPDATE payments
+         SET status = 'failed'
          WHERE invoice_id = $1
-           AND status IN ('pending', 'success')
-         ORDER BY created_at DESC
-         LIMIT 1`,
+           AND status IN ('pending', 'success')`,
         [invoiceId]
       );
-
-      if (existingPaymentResult.rows.length > 0) {
-        const error = new Error("Payment already initiated for this invoice.");
-        error.statusCode = 409;
-        throw error;
-      }
 
       const invoiceItemsResult = await client.query(
         `SELECT ii.id, ii.description, ii.quantity, ii.unit_price, p.name AS product_name
