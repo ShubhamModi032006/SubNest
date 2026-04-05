@@ -97,12 +97,6 @@ const createPaymentSession = async (req, res, next) => {
 
       const invoice = invoiceResult.rows[0];
       ensureInvoiceAccess(invoice, req.user);
-      if (invoice.status === "cancelled") {
-        const error = new Error("Cancelled invoices cannot be paid.");
-        error.statusCode = 400;
-        throw error;
-      }
-
       if (invoice.paid_at || invoice.status === "paid") {
         const error = new Error("Invoice is already paid.");
         error.statusCode = 400;
@@ -112,7 +106,9 @@ const createPaymentSession = async (req, res, next) => {
       if (invoice.status !== "confirmed") {
         await client.query(
           `UPDATE invoices
-           SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, NOW())
+           SET status = 'confirmed',
+               confirmed_at = COALESCE(confirmed_at, NOW()),
+               cancelled_at = NULL
            WHERE id = $1`,
           [invoiceId]
         );
